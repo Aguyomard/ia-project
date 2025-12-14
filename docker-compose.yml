@@ -2,22 +2,22 @@ services:
   app:
     build: .
     ports:
-      - '3000:3000'
-      - '9229:9229'
+      - "3000:3000"
+      - "9229:9229"
     volumes:
       - .:/app
     env_file:
       - .env
-    user: '1000:1000'
+    user: "1000:1000"
     command:
       [
-        'nodemon',
-        '--inspect=0.0.0.0:9229',
-        '--ext',
-        'ts',
-        '--exec',
-        'tsx',
-        'src/server.ts',
+        "nodemon",
+        "--inspect=0.0.0.0:9229",
+        "--ext",
+        "ts",
+        "--exec",
+        "tsx",
+        "src/server.ts",
       ]
 
   frontend:
@@ -25,10 +25,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - '5173:5173'
+      - "5173:5173"
     volumes:
       - ./frontend:/app
     environment:
       - NODE_ENV=development
-    user: '1000:1000'
-    command: pnpm dev
+    user: "1000:1000"

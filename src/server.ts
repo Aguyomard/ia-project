@@ -6,6 +6,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { createOrder } from './config/db.js';
+import { getMistralService } from './services/mistral/index.js';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -61,6 +62,82 @@ app.get('/test', async (req, res) => {
     res.status(500).json({
       result: 500,
       error: 'Failed to create order',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Type pour la réponse JSON de l'IA
+interface AIComparisonResponse {
+  cookie: {
+    description: string;
+    avantages: string[];
+    inconvenients: string[];
+  };
+  localStorage: {
+    description: string;
+    avantages: string[];
+    inconvenients: string[];
+  };
+  conclusion: string;
+}
+
+// Endpoint chatbot
+app.post('/api/chat', async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      res.status(400).json({ error: 'Message is required' });
+      return;
+    }
+
+    console.log('💬 Chat message:', message);
+
+    const mistral = getMistralService();
+    const response = await mistral.chat(message, {
+      systemPrompt:
+        'Tu es un assistant IA amical et serviable. Tu réponds en français de manière concise et utile.',
+    });
+
+    console.log('✅ Chat response sent');
+
+    res.json({ response });
+  } catch (error) {
+    console.error('❌ Chat error:', error);
+    res.status(500).json({
+      error: 'Erreur lors de la génération de la réponse',
+      response: 'Désolé, une erreur est survenue. Réessaie plus tard.',
+    });
+  }
+});
+
+// Endpoint pour tester Mistral AI (réponse JSON)
+app.get('/ai-test', async (req, res) => {
+  try {
+    console.log('🤖 Envoi de la requête à Mistral (mode JSON)...');
+
+    const mistral = getMistralService();
+    const response = await mistral.chatJSON<AIComparisonResponse>(
+      'Compare cookie et localStorage pour le stockage web.',
+      {
+        systemPrompt: 'Tu es un expert technique senior en développement web.',
+      }
+    );
+
+    console.log('✅ Réponse JSON reçue de Mistral');
+
+    // response est directement un objet JS utilisable !
+    res.json({
+      result: 200,
+      message: 'Mistral AI fonctionne !',
+      data: response,
+    });
+  } catch (error) {
+    console.error('❌ Erreur Mistral:', error);
+    res.status(500).json({
+      result: 500,
+      error: 'Erreur avec Mistral AI',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

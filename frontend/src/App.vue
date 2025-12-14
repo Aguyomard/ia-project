@@ -1,21 +1,27 @@
 <template>
   <div id="app">
     <header class="header">
-      <h1>🚀 Mon Projet Node.js + Vue 3</h1>
+      <nav class="nav">
+        <router-link to="/" class="logo">🤖 Assistant IA</router-link>
+        <div class="nav-links">
+          <router-link to="/" class="nav-link">Accueil</router-link>
+          <router-link to="/chat" class="nav-link">Chat</router-link>
+        </div>
+      </nav>
     </header>
 
     <main class="main">
-      <HelloWorld />
+      <router-view />
     </main>
 
     <footer class="footer">
-      <p>Backend Node.js + Frontend Vue 3</p>
+      <p>Powered by Mistral AI</p>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
+// Router is handled by vue-router
 </script>
 
 <style scoped>
@@ -29,15 +35,50 @@ import HelloWorld from './components/HelloWorld.vue'
 .header {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  padding: 2rem;
-  text-align: center;
+  padding: 0 2rem;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-.header h1 {
-  margin: 0;
-  font-size: 2.5rem;
-  font-weight: 300;
+.nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 64px;
+}
+
+.logo {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: white;
+  text-decoration: none;
+}
+
+.nav-links {
+  display: flex;
+  gap: 8px;
+}
+
+.nav-link {
+  color: rgba(255, 255, 255, 0.8);
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 500;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+
+.nav-link:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+.nav-link.router-link-active {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
 }
 
 .main {

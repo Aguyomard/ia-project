@@ -1,0 +1,185 @@
+import { Mistral } from '@mistralai/mistralai';
+import type { ChatMessage, ChatOptions, MistralConfig } from './types.js';
+import {
+  MistralConfigError,
+  MistralAPIError,
+  MistralParseError,
+} from './errors.js';
+
+/**
+ * Service pour interagir avec l'API Mistral AI
+ *
+ * @example
+ * ```ts
+ * const mistral = getMistralService();
+ * const response = await mistral.chat('Bonjour !');
+ * ```
+ */
+export class MistralService {
+  private readonly client: Mistral;
+  private readonly defaultModel: string;
+  private readonly defaultTemperature: number;
+
+  public constructor(config: MistralConfig = {}) {
+    const apiKey = config.apiKey || process.env.MISTRAL_API_KEY;
+
+    if (!apiKey) {
+      throw new MistralConfigError(
+        'MISTRAL_API_KEY is required. Set it in environment or pass it to constructor.'
+      );
+    }
+
+    this.client = new Mistral({ apiKey });
+    this.defaultModel = config.defaultModel || 'mistral-tiny';
+    this.defaultTemperature = config.defaultTemperature ?? 0.7;
+  }
+
+  /**
+   * Envoie un message simple et retourne la réponse
+   */
+  public async chat(
+    userMessage: string,
+    options: ChatOptions = {}
+  ): Promise<string | null> {
+    const { systemPrompt, ...restOptions } = options;
+
+    const messages: ChatMessage[] = [];
+
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+
+    messages.push({ role: 'user', content: userMessage });
+
+    return this.complete(messages, restOptions);
+  }
+
+  /**
+   * Envoie un message et retourne directement un objet JSON typé
+   *
+   * Utilise response_format: json_object de l'API Mistral pour garantir du JSON valide.
+   *
+   * @example
+   * ```ts
+   * interface Recipe { name: string; ingredients: string[] }
+   * const recipe = await mistral.chatJSON<Recipe>('Donne une recette de cookies');
+   * console.log(recipe.ingredients);
+   * ```
+   */
+  public async chatJSON<T = Record<string, unknown>>(
+    userMessage: string,
+    options: Omit<ChatOptions, 'jsonMode'> = {}
+  ): Promise<T> {
+    const response = await this.chat(userMessage, {
+      ...options,
+      jsonMode: true,
+    });
+
+    if (!response) {
+      throw new MistralParseError('Empty response from Mistral');
+    }
+
+    try {
+      return JSON.parse(response) as T;
+    } catch (error) {
+      throw new MistralParseError(
+        `Failed to parse JSON response: ${response.substring(0, 100)}...`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Envoie une conversation complète (avec historique)
+   */
+  public async complete(
+    messages: ChatMessage[],
+    options: Omit<ChatOptions, 'systemPrompt'> = {}
+  ): Promise<string | null> {
+    const {
+      model = this.defaultModel,
+      temperature = this.defaultTemperature,
+      maxTokens,
+      jsonMode = false,
+    } = options;
+
+    try {
+      console.log(
+        `[MistralService] Calling ${model} with ${messages.length} messages (jsonMode: ${jsonMode})`
+      );
+
+      const response = await this.client.chat.complete({
+        model,
+        messages,
+        temperature,
+        ...(maxTokens && { maxTokens }),
+        ...(jsonMode && { responseFormat: { type: 'json_object' } }),
+      });
+
+      const content = response.choices?.[0]?.message?.content;
+
+      // Le contenu peut être string ou ContentChunk[]
+      if (typeof content === 'string') {
+        return content;
+      }
+
+      if (Array.isArray(content)) {
+        return content
+          .filter((chunk) => chunk.type === 'text')
+          .map((chunk) => ('text' in chunk ? chunk.text : ''))
+          .join('');
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[MistralService] API call failed:', error);
+      throw new MistralAPIError('Failed to complete chat request', error);
+    }
+  }
+
+  /**
+   * Vérifie que la connexion à Mistral fonctionne
+   */
+  public async healthCheck(): Promise<boolean> {
+    try {
+      const response = await this.chat('Réponds "ok".', {
+        maxTokens: 10,
+      });
+      return response !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Retourne le modèle par défaut
+   */
+  public getDefaultModel(): string {
+    return this.defaultModel;
+  }
+}
+
+// ============================================
+// Singleton (avec support pour les tests)
+// ============================================
+
+let instance: MistralService | null = null;
+
+/**
+ * Retourne l'instance singleton du service
+ */
+export function getMistralService(config?: MistralConfig): MistralService {
+  if (!instance) {
+    instance = new MistralService(config);
+  }
+  return instance;
+}
+
+/**
+ * Reset le singleton (utile pour les tests)
+ */
+export function resetMistralService(): void {
+  instance = null;
+}
+
+export default MistralService;
