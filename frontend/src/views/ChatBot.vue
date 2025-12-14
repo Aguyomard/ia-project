@@ -11,6 +11,13 @@
             En ligne
           </span>
         </div>
+        <button
+          class="new-chat-btn"
+          @click="newConversation"
+          title="Nouvelle conversation"
+        >
+          ✨ Nouveau
+        </button>
       </div>
 
       <!-- Messages -->
@@ -63,7 +70,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
+import { ref, nextTick, onMounted } from 'vue';
+
+const API_URL = 'http://localhost:3000';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -71,16 +80,11 @@ interface Message {
   time: string;
 }
 
-const messages = ref<Message[]>([
-  {
-    role: 'assistant',
-    content: "Salut ! Je suis ton assistant IA. Comment puis-je t'aider ?",
-    time: formatTime(new Date()),
-  },
-]);
-
+const messages = ref<Message[]>([]);
 const inputMessage = ref('');
 const isLoading = ref(false);
+const isInitializing = ref(true);
+const conversationId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
 
 function formatTime(date: Date): string {
@@ -97,9 +101,41 @@ async function scrollToBottom() {
   }
 }
 
+// Créer une nouvelle conversation au chargement
+async function initConversation() {
+  try {
+    const response = await fetch(`${API_URL}/api/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    const data = await response.json();
+    conversationId.value = data.conversation.id;
+
+    // Message de bienvenue
+    messages.value.push({
+      role: 'assistant',
+      content: "Salut ! Je suis ton assistant IA. Comment puis-je t'aider ?",
+      time: formatTime(new Date()),
+    });
+
+    console.log('📝 Conversation initialized:', conversationId.value);
+  } catch (error) {
+    console.error('Failed to init conversation:', error);
+    messages.value.push({
+      role: 'assistant',
+      content: 'Erreur de connexion au serveur. Rafraîchis la page.',
+      time: formatTime(new Date()),
+    });
+  } finally {
+    isInitializing.value = false;
+  }
+}
+
 async function sendMessage() {
   const content = inputMessage.value.trim();
-  if (!content || isLoading.value) return;
+  if (!content || isLoading.value || !conversationId.value) return;
 
   // Add user message
   messages.value.push({
@@ -113,10 +149,13 @@ async function sendMessage() {
   await scrollToBottom();
 
   try {
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch(`${API_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: content }),
+      body: JSON.stringify({
+        message: content,
+        conversationId: conversationId.value,
+      }),
     });
 
     const data = await response.json();
@@ -137,6 +176,18 @@ async function sendMessage() {
     await scrollToBottom();
   }
 }
+
+// Démarrer une nouvelle conversation
+async function newConversation() {
+  messages.value = [];
+  conversationId.value = null;
+  isInitializing.value = true;
+  await initConversation();
+}
+
+onMounted(() => {
+  initConversation();
+});
 </script>
 
 <style scoped>
@@ -200,6 +251,23 @@ async function sendMessage() {
   background: #4ade80;
   border-radius: 50%;
   animation: pulse 2s infinite;
+}
+
+.new-chat-btn {
+  margin-left: auto;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.new-chat-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 @keyframes pulse {

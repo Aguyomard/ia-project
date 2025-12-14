@@ -7,6 +7,10 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { createOrder } from './config/db.js';
 import { getMistralService } from './services/mistral/index.js';
+import { getConversationService } from './services/conversation/index.js';
+
+const SYSTEM_PROMPT =
+  'Tu es un assistant IA amical et serviable. Tu réponds en français de manière concise et utile.';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -82,27 +86,118 @@ interface AIComparisonResponse {
   conclusion: string;
 }
 
-// Endpoint chatbot
+// Créer une nouvelle conversation
+app.post('/api/conversations', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const conversationService = getConversationService();
+    const conversation = await conversationService.createConversation(userId);
+
+    // Ajouter le message système initial
+    await conversationService.addMessage({
+      conversationId: conversation.id,
+      role: 'system',
+      content: SYSTEM_PROMPT,
+    });
+
+    console.log('📝 New conversation created:', conversation.id);
+    res.json({ conversation });
+  } catch (error) {
+    console.error('❌ Error creating conversation:', error);
+    res.status(500).json({ error: 'Failed to create conversation' });
+  }
+});
+
+// Lister les conversations
+app.get('/api/conversations', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const conversationService = getConversationService();
+    const conversations = await conversationService.listConversations(
+      userId as string | undefined
+    );
+    res.json({ conversations });
+  } catch (error) {
+    console.error('❌ Error listing conversations:', error);
+    res.status(500).json({ error: 'Failed to list conversations' });
+  }
+});
+
+// Récupérer les messages d'une conversation
+app.get('/api/conversations/:id/messages', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const conversationService = getConversationService();
+    const messages = await conversationService.getMessages(id);
+
+    // Filtrer le message système pour le frontend
+    const visibleMessages = messages.filter((m) => m.role !== 'system');
+    res.json({ messages: visibleMessages });
+  } catch (error) {
+    console.error('❌ Error getting messages:', error);
+    res.status(500).json({ error: 'Failed to get messages' });
+  }
+});
+
+// Endpoint chatbot avec historique
 app.post('/api/chat', async (req, res) => {
   try {
-    const { message } = req.body;
+    const { message, conversationId } = req.body;
 
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Message is required' });
       return;
     }
 
-    console.log('💬 Chat message:', message);
+    if (!conversationId) {
+      res.status(400).json({ error: 'conversationId is required' });
+      return;
+    }
 
+    console.log(
+      '💬 Chat message:',
+      message,
+      'in conversation:',
+      conversationId
+    );
+
+    const conversationService = getConversationService();
     const mistral = getMistralService();
-    const response = await mistral.chat(message, {
-      systemPrompt:
-        'Tu es un assistant IA amical et serviable. Tu réponds en français de manière concise et utile.',
+
+    // Ajouter le message utilisateur à la conversation
+    await conversationService.addMessage({
+      conversationId,
+      role: 'user',
+      content: message,
     });
+
+    // Récupérer tout l'historique
+    const chatHistory =
+      await conversationService.getChatHistory(conversationId);
+
+    // Envoyer l'historique complet à Mistral
+    const aiResponse = await mistral.complete(chatHistory);
+
+    if (!aiResponse) {
+      throw new Error('Empty response from Mistral');
+    }
+
+    // Sauvegarder la réponse de l'IA
+    await conversationService.addMessage({
+      conversationId,
+      role: 'assistant',
+      content: aiResponse,
+    });
+
+    // Générer un titre si c'est le premier message
+    const messages = await conversationService.getMessages(conversationId);
+    if (messages.filter((m) => m.role === 'user').length === 1) {
+      await conversationService.generateTitle(conversationId);
+    }
 
     console.log('✅ Chat response sent');
 
-    res.json({ response });
+    res.json({ response: aiResponse, conversationId });
   } catch (error) {
     console.error('❌ Chat error:', error);
     res.status(500).json({
