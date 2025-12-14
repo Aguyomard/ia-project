@@ -1,6 +1,8 @@
 # 🗂 Ignorer les dépendances Node.js
 node_modules
 npm-debug.log
+pnpm-debug.log*
+.pnpm-store/
 
 # ⚙️ Ignorer les fichiers Docker temporaires
 docker-compose.override.yml

@@ -1,10 +1,13 @@
 FROM node:20-alpine
 
+# Install pnpm
+RUN npm install -g pnpm
+
 WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install && npm install -g nodemon tsx  
+RUN pnpm install && npm install -g nodemon tsx  
 
 COPY . .
 

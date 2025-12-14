@@ -1,0 +1,22 @@
+{
+  "extends": "../tsconfig.base.json",
+  "include": ["**/*.ts", "**/*.js"],
+  "exclude": ["**/__tests__/*", "**/*.test.ts", "**/*.spec.ts", "dist"],
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "module": "ESNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}

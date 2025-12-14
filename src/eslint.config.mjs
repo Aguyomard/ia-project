@@ -13,25 +13,16 @@ export default [
     rules: {
       'no-unused-vars': 'warn',
       'no-console': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
     },
   },
   {
-    files: ['**/*.ts', '**/*.tsx'],
+    files: ['**/*.ts'],
     languageOptions: {
       parserOptions: {
         ecmaVersion: 'latest',
         sourceType: 'module',
       },
     },
-  },
-  {
-    ignores: [
-      'node_modules/**',
-      'dist/**',
-      'build/**',
-      'coverage/**',
-      'frontend/dist/**',
-      'src/dist/**',
-    ],
   },
 ]

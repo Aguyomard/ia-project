@@ -1,0 +1,199 @@
+🚀 MÉMO - MONOREPO NODE.JS + VUE 3
+====================================
+
+📱 URLS DES SERVICES
+--------------------
+Frontend Vue 3:    http://localhost:5173
+Backend Node.js:   http://localhost:3000
+Debug Backend:     http://localhost:9229
+
+🐳 COMMANDES DOCKER ESSENTIELLES
+--------------------------------
+# Démarrer tous les services
+docker compose up -d
+
+# Démarrer uniquement le frontend
+docker compose up frontend
+
+# Démarrer uniquement le backend
+docker compose up app
+
+# Voir les logs
+docker compose logs -f frontend    # Logs frontend
+docker compose logs -f app         # Logs backend
+docker compose logs -f             # Tous les logs
+
+# Arrêter les services
+docker compose down
+
+# Redémarrer un service
+docker compose restart frontend
+docker compose restart app
+
+# Rebuild et redémarrer
+docker compose build --no-cache
+docker compose up -d
+
+🔧 COMMANDES PNPM (MONOREPO)
+----------------------------
+# Installation
+pnpm install                       # Installer toutes les dépendances
+pnpm install:all                  # Alias pour l'installation
+
+# Développement
+pnpm dev                          # Backend + Frontend en parallèle
+pnpm dev:backend                 # Backend uniquement
+pnpm dev:frontend                # Frontend uniquement
+
+# Build
+pnpm build                        # Build tous les packages
+pnpm build:backend               # Build backend uniquement
+pnpm build:frontend              # Build frontend uniquement
+
+# Linting et tests
+pnpm lint                         # Lint tous les packages
+pnpm type-check                  # Vérification des types
+pnpm test                        # Tests du backend
+
+# Maintenance
+pnpm clean                       # Nettoyer tous les packages
+
+📜 SCRIPTS UTILES
+-----------------
+./scripts/setup.sh               # Configuration initiale
+./scripts/quick-start.sh         # Démarrage rapide interactif
+./scripts/dev.sh                 # Script de développement flexible
+./scripts/check-env.sh           # Vérification de l'environnement
+./scripts/health-check.sh        # Vérification de la santé des services
+./scripts/clean-all.sh           # Nettoyage complet
+./scripts/update-deps.sh         # Mise à jour des dépendances
+./scripts/backup.sh              # Sauvegarde du projet
+./scripts/restore.sh             # Restauration d'une sauvegarde
+
+📋 MAKEFILE
+-----------
+make help                         # Affiche l'aide
+make dev                         # Démarrage du développement
+make build                       # Build tous les packages
+make clean                       # Nettoyage
+make docker-up                   # Démarrage Docker
+make docker-down                 # Arrêt Docker
+make docker-build                # Build Docker
+make docker-logs                 # Logs Docker
+
+🏗️ STRUCTURE DU PROJET
+----------------------
+nodejs-project/
+├── src/                    # Backend Node.js
+│   ├── package.json       # Dépendances backend
+│   ├── server.ts          # Serveur Express
+│   ├── config/            # Configuration
+│   ├── middlewares/       # Middlewares Express
+│   └── __tests__/         # Tests
+├── frontend/              # Frontend Vue 3
+│   ├── package.json       # Dépendances frontend
+│   ├── src/               # Code source Vue
+│   │   ├── components/    # Composants Vue
+│   │   ├── App.vue        # Composant racine
+│   │   └── main.ts        # Point d'entrée
+│   ├── index.html         # Page HTML principale
+│   └── vite.config.ts     # Configuration Vite
+├── scripts/               # Scripts de développement
+├── .vscode/               # Configuration VS Code
+├── package.json           # Configuration racine
+├── pnpm-workspace.yaml    # Configuration workspace pnpm
+└── docker-compose.yml     # Orchestration Docker
+
+⚙️ CONFIGURATION
+----------------
+- Node.js: 18+
+- pnpm: 8+
+- Vue 3 (Composition API)
+- TypeScript
+- Vite (build tool)
+- Express (backend)
+- Docker & Docker Compose
+
+🔍 DÉPANNAGE RAPIDE
+-------------------
+# Problème de dépendances
+./scripts/clean-all.sh
+./scripts/setup.sh
+
+# Services non accessibles
+./scripts/health-check.sh
+
+# Problèmes Docker
+docker compose down
+docker compose build --no-cache
+docker compose up -d
+
+# Vérifier l'environnement
+./scripts/check-env.sh
+
+# Logs en temps réel
+docker compose logs -f
+
+# Redémarrer un service spécifique
+docker compose restart frontend
+docker compose restart app
+
+📚 DOCUMENTATION
+----------------
+README.md                     # Documentation principale
+scripts/README.md            # Documentation des scripts
+frontend/README.md           # Documentation frontend
+
+🌐 DÉVELOPPEMENT
+----------------
+1. Démarrer: docker compose up -d
+2. Frontend: http://localhost:5173
+3. Backend: http://localhost:3000
+4. Hot-reload activé sur les deux services
+5. Modifier le code → sauvegarde automatique → rechargement
+
+💡 ASTUCES
+----------
+- Utilisez ./scripts/quick-start.sh pour un démarrage facile
+- Le Makefile simplifie les commandes courantes
+- Les scripts sont interactifs et guidés
+- Sauvegardez régulièrement avec ./scripts/backup.sh
+- Vérifiez la santé avec ./scripts/health-check.sh
+
+🚨 POINTS D'ATTENTION
+---------------------
+- Toujours arrêter Docker avant de modifier la configuration
+- Vérifier que les ports 3000 et 5173 sont libres
+- Les erreurs de TypeScript n'empêchent pas le développement
+- Le frontend peut fonctionner même si le backend est arrêté
+
+📅 MAINTENANCE
+--------------
+- Mise à jour des dépendances: ./scripts/update-deps.sh
+- Sauvegarde hebdomadaire: ./scripts/backup.sh
+- Nettoyage mensuel: ./scripts/clean-all.sh
+- Vérification de santé: ./scripts/health-check.sh
+
+🎯 WORKFLOW RECOMMANDÉ
+----------------------
+1. Vérifier l'environnement: ./scripts/check-env.sh
+2. Démarrer les services: docker compose up -d
+3. Vérifier la santé: ./scripts/health-check.sh
+4. Développer avec hot-reload
+5. Tester: pnpm test
+6. Build: pnpm build
+7. Sauvegarder: ./scripts/backup.sh
+
+
+
+
+🔧 Installation :
+Racine : 
+# Depuis la racine du projet
+cd src && pnpm add chalk
+# OU avec le filtre
+pnpm add --filter backend chalk
+Frontend : pnpm add --filter frontend package
+Backend : pnpm add --filter backend package
+
+

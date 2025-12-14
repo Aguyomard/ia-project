@@ -1,22 +1,55 @@
-import mongoose from 'mongoose'
+import { v4 as uuidv4 } from 'uuid';
 
-const connectDB = async () => {
-  if (!process.env.MONGO_URI) {
-    throw new Error(
-      "❌ Erreur : La variable d'environnement MONGO_URI est manquante."
-    )
-  }
+export const pay = async (cart: any, userId: string): Promise<string> => {
+  const promise = new Promise<string>((resolve, reject) => {
+    setTimeout(() => {
+      resolve('success');
+    }, 3000);
+  });
 
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    } as any)
-    console.log('✅ MongoDB connecté avec succès !')
-  } catch (err) {
-    console.error('❌ Erreur de connexion à MongoDB :', err)
-    process.exit(1)
-  }
-}
+  return promise;
+};
 
-export default connectDB
+export const createOrder = async (
+  cart: any,
+  userId: string
+): Promise<string> => {
+  const id = uuidv4();
+
+  const promise = new Promise<string>((resolve, reject) => {
+    setTimeout(() => {
+      resolve(id);
+    }, 3000);
+  });
+
+  return promise;
+};
+
+export const sendEmail = async (
+  orderId: string,
+  userId: string,
+  emailResult: any
+): Promise<string> => {
+  const promise = new Promise<string>((resolve, reject) => {
+    setTimeout(() => {
+      resolve('success');
+      // reject(new Error("Email failed"))
+    }, 3000);
+  });
+
+  return promise;
+};
+
+export const logAnalytics = async (
+  data: any,
+  message: string
+): Promise<string> => {
+  const promise = new Promise<string>((resolve, reject) => {
+    setTimeout(() => {
+      console.log('Analytics log created: ', message);
+      resolve('success');
+    }, 1000);
+  });
+
+  return promise;
+};

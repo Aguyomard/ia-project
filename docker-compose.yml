@@ -6,9 +6,9 @@ services:
       - '9229:9229'
     volumes:
       - .:/app
-      # - /app/node_modules
     env_file:
       - .env
+    user: '1000:1000'
     command:
       [
         'nodemon',
@@ -19,3 +19,16 @@ services:
         'tsx',
         'src/server.ts',
       ]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./frontend:/app
+    environment:
+      - NODE_ENV=development
+    user: '1000:1000'
+    command: pnpm dev
