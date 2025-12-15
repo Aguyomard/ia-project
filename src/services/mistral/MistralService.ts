@@ -1,10 +1,16 @@
 import { Mistral } from '@mistralai/mistralai';
-import type { ChatMessage, ChatOptions, MistralConfig } from './types.js';
+import type {
+  ChatMessage,
+  ChatOptions,
+  MistralConfig,
+  RetryConfig,
+} from './types.js';
 import {
   MistralConfigError,
   MistralAPIError,
   MistralParseError,
 } from './errors.js';
+import { withRetry, type RetryOptions } from '../../utils/retry.js';
 
 /**
  * Service pour interagir avec l'API Mistral AI
@@ -19,6 +25,7 @@ export class MistralService {
   private readonly client: Mistral;
   private readonly defaultModel: string;
   private readonly defaultTemperature: number;
+  private readonly retryOptions: RetryOptions;
 
   public constructor(config: MistralConfig = {}) {
     const apiKey = config.apiKey || process.env.MISTRAL_API_KEY;
@@ -32,6 +39,20 @@ export class MistralService {
     this.client = new Mistral({ apiKey });
     this.defaultModel = config.defaultModel || 'mistral-tiny';
     this.defaultTemperature = config.defaultTemperature ?? 0.7;
+
+    // Configuration du retry avec exponential backoff
+    this.retryOptions = {
+      maxRetries: config.retry?.maxRetries ?? 3,
+      baseDelay: config.retry?.baseDelay ?? 1000,
+      multiplier: config.retry?.multiplier ?? 2,
+      maxDelay: config.retry?.maxDelay ?? 30000,
+      onRetry: (attempt, delay, error) => {
+        console.warn(
+          `[MistralService] Retry ${attempt}/${this.retryOptions.maxRetries} after ${Math.round(delay)}ms`,
+          error instanceof Error ? error.message : error
+        );
+      },
+    };
   }
 
   /**
@@ -91,6 +112,7 @@ export class MistralService {
 
   /**
    * Envoie une conversation complète (avec historique)
+   * Inclut un retry automatique avec exponential backoff pour les erreurs 429/500/503
    */
   public async complete(
     messages: ChatMessage[],
@@ -103,18 +125,22 @@ export class MistralService {
       jsonMode = false,
     } = options;
 
-    try {
-      console.log(
-        `[MistralService] Calling ${model} with ${messages.length} messages (jsonMode: ${jsonMode})`
-      );
+    console.log(
+      `[MistralService] Calling ${model} with ${messages.length} messages (jsonMode: ${jsonMode})`
+    );
 
-      const response = await this.client.chat.complete({
-        model,
-        messages,
-        temperature,
-        ...(maxTokens && { maxTokens }),
-        ...(jsonMode && { responseFormat: { type: 'json_object' } }),
-      });
+    try {
+      const response = await withRetry(
+        () =>
+          this.client.chat.complete({
+            model,
+            messages,
+            temperature,
+            ...(maxTokens && { maxTokens }),
+            ...(jsonMode && { responseFormat: { type: 'json_object' } }),
+          }),
+        this.retryOptions
+      );
 
       const content = response.choices?.[0]?.message?.content;
 
@@ -132,7 +158,7 @@ export class MistralService {
 
       return null;
     } catch (error) {
-      console.error('[MistralService] API call failed:', error);
+      console.error('[MistralService] API call failed after retries:', error);
       throw new MistralAPIError('Failed to complete chat request', error);
     }
   }
@@ -140,6 +166,7 @@ export class MistralService {
   /**
    * Stream une conversation complète (avec historique)
    * Retourne un AsyncIterable qui yield chaque chunk de texte
+   * Inclut un retry automatique avec exponential backoff pour l'initialisation du stream
    *
    * @example
    * ```ts
@@ -158,17 +185,22 @@ export class MistralService {
       maxTokens,
     } = options;
 
-    try {
-      console.log(
-        `[MistralService] Streaming ${model} with ${messages.length} messages`
-      );
+    console.log(
+      `[MistralService] Streaming ${model} with ${messages.length} messages`
+    );
 
-      const stream = await this.client.chat.stream({
-        model,
-        messages,
-        temperature,
-        ...(maxTokens && { maxTokens }),
-      });
+    try {
+      // Le retry s'applique à l'initialisation du stream
+      const stream = await withRetry(
+        () =>
+          this.client.chat.stream({
+            model,
+            messages,
+            temperature,
+            ...(maxTokens && { maxTokens }),
+          }),
+        this.retryOptions
+      );
 
       for await (const event of stream) {
         const content = event.data.choices?.[0]?.delta?.content;
@@ -177,7 +209,7 @@ export class MistralService {
         }
       }
     } catch (error) {
-      console.error('[MistralService] Stream failed:', error);
+      console.error('[MistralService] Stream failed after retries:', error);
       throw new MistralAPIError('Failed to stream chat request', error);
     }
   }
