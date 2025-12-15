@@ -13,6 +13,10 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   jsonMode?: boolean;
+  /** Activer la sliding window automatique (défaut: true) */
+  autoTruncate?: boolean;
+  /** Tokens réservés pour la réponse (défaut: 1000) */
+  reservedForResponse?: number;
 }
 
 export interface RetryConfig {

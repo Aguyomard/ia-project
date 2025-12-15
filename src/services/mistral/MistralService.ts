@@ -11,6 +11,12 @@ import {
   MistralParseError,
 } from './errors.js';
 import { withRetry, type RetryOptions } from '../../utils/retry.js';
+import {
+  applySlidingWindow,
+  getModelContextLimit,
+  estimateTotalTokens,
+  type SlidingWindowConfig,
+} from '../../utils/tokenizer.js';
 
 /**
  * Service pour interagir avec l'API Mistral AI
@@ -112,7 +118,9 @@ export class MistralService {
 
   /**
    * Envoie une conversation complète (avec historique)
-   * Inclut un retry automatique avec exponential backoff pour les erreurs 429/500/503
+   * Inclut :
+   * - Sliding window automatique pour éviter de dépasser la limite de contexte
+   * - Retry automatique avec exponential backoff pour les erreurs 429/500/503
    */
   public async complete(
     messages: ChatMessage[],
@@ -123,10 +131,24 @@ export class MistralService {
       temperature = this.defaultTemperature,
       maxTokens,
       jsonMode = false,
+      autoTruncate = true,
+      reservedForResponse = 1000,
     } = options;
 
+    // Appliquer la sliding window si activée
+    let processedMessages = messages;
+    if (autoTruncate) {
+      const contextLimit = getModelContextLimit(model);
+      processedMessages = applySlidingWindow(messages, {
+        maxTokens: contextLimit,
+        reservedForResponse,
+        preserveSystemPrompt: true,
+      });
+    }
+
     console.log(
-      `[MistralService] Calling ${model} with ${messages.length} messages (jsonMode: ${jsonMode})`
+      `[MistralService] Calling ${model} with ${processedMessages.length} messages ` +
+        `(~${estimateTotalTokens(processedMessages)} tokens, jsonMode: ${jsonMode})`
     );
 
     try {
@@ -134,7 +156,7 @@ export class MistralService {
         () =>
           this.client.chat.complete({
             model,
-            messages,
+            messages: processedMessages,
             temperature,
             ...(maxTokens && { maxTokens }),
             ...(jsonMode && { responseFormat: { type: 'json_object' } }),
@@ -166,7 +188,9 @@ export class MistralService {
   /**
    * Stream une conversation complète (avec historique)
    * Retourne un AsyncIterable qui yield chaque chunk de texte
-   * Inclut un retry automatique avec exponential backoff pour l'initialisation du stream
+   * Inclut :
+   * - Sliding window automatique pour éviter de dépasser la limite de contexte
+   * - Retry automatique avec exponential backoff pour l'initialisation du stream
    *
    * @example
    * ```ts
@@ -183,10 +207,24 @@ export class MistralService {
       model = this.defaultModel,
       temperature = this.defaultTemperature,
       maxTokens,
+      autoTruncate = true,
+      reservedForResponse = 1000,
     } = options;
 
+    // Appliquer la sliding window si activée
+    let processedMessages = messages;
+    if (autoTruncate) {
+      const contextLimit = getModelContextLimit(model);
+      processedMessages = applySlidingWindow(messages, {
+        maxTokens: contextLimit,
+        reservedForResponse,
+        preserveSystemPrompt: true,
+      });
+    }
+
     console.log(
-      `[MistralService] Streaming ${model} with ${messages.length} messages`
+      `[MistralService] Streaming ${model} with ${processedMessages.length} messages ` +
+        `(~${estimateTotalTokens(processedMessages)} tokens)`
     );
 
     try {
@@ -195,7 +233,7 @@ export class MistralService {
         () =>
           this.client.chat.stream({
             model,
-            messages,
+            messages: processedMessages,
             temperature,
             ...(maxTokens && { maxTokens }),
           }),
