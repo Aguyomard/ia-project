@@ -87,7 +87,12 @@ export async function chat(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    console.log('💬 Chat message:', message, 'in conversation:', conversationId);
+    console.log(
+      '💬 Chat message:',
+      message,
+      'in conversation:',
+      conversationId
+    );
 
     const conversationService = getConversationService();
     const mistral = getMistralService();
@@ -100,7 +105,8 @@ export async function chat(req: Request, res: Response): Promise<void> {
     });
 
     // Récupérer l'historique et envoyer à Mistral
-    const chatHistory = await conversationService.getChatHistory(conversationId);
+    const chatHistory =
+      await conversationService.getChatHistory(conversationId);
     const aiResponse = await mistral.complete(chatHistory);
 
     if (!aiResponse) {
@@ -131,3 +137,85 @@ export async function chat(req: Request, res: Response): Promise<void> {
   }
 }
 
+/**
+ * POST /api/chat/stream - Envoyer un message et streamer la réponse (SSE)
+ */
+export async function chatStream(req: Request, res: Response): Promise<void> {
+  try {
+    const { message, conversationId } = req.body;
+
+    if (!message || typeof message !== 'string') {
+      res.status(400).json({ error: 'Message is required' });
+      return;
+    }
+
+    if (!conversationId) {
+      res.status(400).json({ error: 'conversationId is required' });
+      return;
+    }
+
+    console.log('🌊 Stream chat:', message, 'in conversation:', conversationId);
+
+    const conversationService = getConversationService();
+    const mistral = getMistralService();
+
+    // Ajouter le message utilisateur
+    await conversationService.addMessage({
+      conversationId,
+      role: 'user',
+      content: message,
+    });
+
+    // Récupérer l'historique
+    const chatHistory =
+      await conversationService.getChatHistory(conversationId);
+
+    // Configurer SSE (Server-Sent Events)
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    // Collecter la réponse complète pour la sauvegarder
+    let fullResponse = '';
+
+    // Streamer les chunks
+    for await (const chunk of mistral.streamComplete(chatHistory)) {
+      fullResponse += chunk;
+      res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+    }
+
+    // Sauvegarder la réponse complète
+    await conversationService.addMessage({
+      conversationId,
+      role: 'assistant',
+      content: fullResponse,
+    });
+
+    // Générer un titre si premier message
+    const messages = await conversationService.getMessages(conversationId);
+    if (messages.filter((m) => m.role === 'user').length === 1) {
+      await conversationService.generateTitle(conversationId);
+    }
+
+    // Envoyer l'événement de fin
+    res.write(`data: ${JSON.stringify({ done: true, fullResponse })}\n\n`);
+    res.end();
+
+    console.log('✅ Stream completed');
+  } catch (error) {
+    console.error('❌ Stream error:', error);
+
+    // Si headers pas encore envoyés, envoyer JSON
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Erreur lors du streaming',
+      });
+    } else {
+      // Sinon envoyer un événement d'erreur
+      res.write(`data: ${JSON.stringify({ error: 'Stream failed' })}\n\n`);
+      res.end();
+    }
+  }
+}

@@ -4,6 +4,7 @@ import {
   listConversations,
   getMessages,
   chat,
+  chatStream,
 } from '../controllers/conversationController.js';
 
 const router = Router();
@@ -15,6 +16,6 @@ router.get('/conversations/:id/messages', getMessages);
 
 // Chat
 router.post('/chat', chat);
+router.post('/chat/stream', chatStream);
 
 export default router;
-

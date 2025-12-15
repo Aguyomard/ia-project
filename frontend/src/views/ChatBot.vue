@@ -16,7 +16,7 @@
           :time="message.time"
         />
 
-        <ChatLoading v-if="isLoading" />
+        <!-- Loading désactivé car on utilise le streaming -->
       </div>
 
       <ChatInput
@@ -95,6 +95,7 @@ async function initConversation() {
 async function sendMessage(content: string) {
   if (!conversationId.value) return;
 
+  // Ajouter le message utilisateur
   messages.value.push({
     role: 'user',
     content,
@@ -104,8 +105,16 @@ async function sendMessage(content: string) {
   isLoading.value = true;
   await scrollToBottom();
 
+  // Créer un message assistant vide pour le streaming
+  const assistantMessageIndex = messages.value.length;
+  messages.value.push({
+    role: 'assistant',
+    content: '',
+    time: formatTime(new Date()),
+  });
+
   try {
-    const response = await fetch(`${API_URL}/api/chat`, {
+    const response = await fetch(`${API_URL}/api/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -114,19 +123,54 @@ async function sendMessage(content: string) {
       }),
     });
 
-    const data = await response.json();
+    if (!response.ok) {
+      throw new Error('Stream request failed');
+    }
 
-    messages.value.push({
-      role: 'assistant',
-      content: data.response || "Désolé, je n'ai pas pu répondre.",
-      time: formatTime(new Date()),
-    });
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+
+    if (!reader) {
+      throw new Error('No reader available');
+    }
+
+    // Lire le stream
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      const text = decoder.decode(value);
+      const lines = text.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.chunk) {
+              // Ajouter le chunk au message
+              messages.value[assistantMessageIndex].content += data.chunk;
+              await scrollToBottom();
+            }
+
+            if (data.done) {
+              console.log('✅ Stream completed');
+            }
+
+            if (data.error) {
+              throw new Error(data.error);
+            }
+          } catch (e) {
+            // Ignorer les erreurs de parsing (lignes vides, etc.)
+          }
+        }
+      }
+    }
   } catch (error) {
-    messages.value.push({
-      role: 'assistant',
-      content: 'Erreur de connexion au serveur. Réessaie plus tard.',
-      time: formatTime(new Date()),
-    });
+    console.error('Stream error:', error);
+    messages.value[assistantMessageIndex].content =
+      'Erreur de connexion au serveur. Réessaie plus tard.';
   } finally {
     isLoading.value = false;
     await scrollToBottom();

@@ -138,6 +138,71 @@ export class MistralService {
   }
 
   /**
+   * Stream une conversation complète (avec historique)
+   * Retourne un AsyncIterable qui yield chaque chunk de texte
+   *
+   * @example
+   * ```ts
+   * for await (const chunk of mistral.streamComplete(messages)) {
+   *   process.stdout.write(chunk);
+   * }
+   * ```
+   */
+  public async *streamComplete(
+    messages: ChatMessage[],
+    options: Omit<ChatOptions, 'systemPrompt' | 'jsonMode'> = {}
+  ): AsyncIterable<string> {
+    const {
+      model = this.defaultModel,
+      temperature = this.defaultTemperature,
+      maxTokens,
+    } = options;
+
+    try {
+      console.log(
+        `[MistralService] Streaming ${model} with ${messages.length} messages`
+      );
+
+      const stream = await this.client.chat.stream({
+        model,
+        messages,
+        temperature,
+        ...(maxTokens && { maxTokens }),
+      });
+
+      for await (const event of stream) {
+        const content = event.data.choices?.[0]?.delta?.content;
+        if (content && typeof content === 'string') {
+          yield content;
+        }
+      }
+    } catch (error) {
+      console.error('[MistralService] Stream failed:', error);
+      throw new MistralAPIError('Failed to stream chat request', error);
+    }
+  }
+
+  /**
+   * Stream un message simple
+   */
+  public async *streamChat(
+    userMessage: string,
+    options: Omit<ChatOptions, 'jsonMode'> = {}
+  ): AsyncIterable<string> {
+    const { systemPrompt, ...restOptions } = options;
+
+    const messages: ChatMessage[] = [];
+
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+
+    messages.push({ role: 'user', content: userMessage });
+
+    yield* this.streamComplete(messages, restOptions);
+  }
+
+  /**
    * Vérifie que la connexion à Mistral fonctionne
    */
   public async healthCheck(): Promise<boolean> {
