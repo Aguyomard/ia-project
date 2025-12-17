@@ -8,9 +8,6 @@ import {
   searchDocumentsUseCase,
 } from '../../../application/usecases/index.js';
 
-/**
- * POST /api/documents - Ajouter un document
- */
 export async function addDocument(req: Request, res: Response): Promise<void> {
   try {
     const { content } = req.body;
@@ -28,18 +25,12 @@ export async function addDocument(req: Request, res: Response): Promise<void> {
     const result = await addDocumentUseCase.execute({ content });
     res.status(201).json(result);
   } catch (error) {
-    console.error('❌ Error adding document:', error);
+    console.error('Error adding document:', error);
     res.status(500).json({ error: 'Failed to add document' });
   }
 }
 
-/**
- * POST /api/documents/batch - Ajouter plusieurs documents
- */
-export async function addDocuments(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function addDocuments(req: Request, res: Response): Promise<void> {
   try {
     const { contents } = req.body;
 
@@ -48,12 +39,9 @@ export async function addDocuments(
       return;
     }
 
-    // Valider chaque contenu
     for (const content of contents) {
       if (typeof content !== 'string' || content.trim().length === 0) {
-        res
-          .status(400)
-          .json({ error: 'All contents must be non-empty strings' });
+        res.status(400).json({ error: 'All contents must be non-empty strings' });
         return;
       }
     }
@@ -61,18 +49,12 @@ export async function addDocuments(
     const result = await addDocumentsUseCase.execute({ contents });
     res.status(201).json(result);
   } catch (error) {
-    console.error('❌ Error adding documents:', error);
+    console.error('Error adding documents:', error);
     res.status(500).json({ error: 'Failed to add documents' });
   }
 }
 
-/**
- * GET /api/documents - Lister les documents
- */
-export async function listDocuments(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function listDocuments(req: Request, res: Response): Promise<void> {
   try {
     const limit = parseInt(req.query.limit as string) || undefined;
     const offset = parseInt(req.query.offset as string) || undefined;
@@ -80,14 +62,11 @@ export async function listDocuments(
     const result = await listDocumentsUseCase.execute({ limit, offset });
     res.json(result);
   } catch (error) {
-    console.error('❌ Error listing documents:', error);
+    console.error('Error listing documents:', error);
     res.status(500).json({ error: 'Failed to list documents' });
   }
 }
 
-/**
- * GET /api/documents/:id - Récupérer un document
- */
 export async function getDocument(req: Request, res: Response): Promise<void> {
   try {
     const id = parseInt(req.params.id);
@@ -100,27 +79,16 @@ export async function getDocument(req: Request, res: Response): Promise<void> {
     const result = await getDocumentUseCase.execute({ id });
     res.json(result);
   } catch (error: unknown) {
-    if (
-      error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      error.code === 'NOT_FOUND'
-    ) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'NOT_FOUND') {
       res.status(404).json({ error: 'Document not found' });
       return;
     }
-    console.error('❌ Error getting document:', error);
+    console.error('Error getting document:', error);
     res.status(500).json({ error: 'Failed to get document' });
   }
 }
 
-/**
- * DELETE /api/documents/:id - Supprimer un document
- */
-export async function deleteDocument(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function deleteDocument(req: Request, res: Response): Promise<void> {
   try {
     const id = parseInt(req.params.id);
 
@@ -138,18 +106,12 @@ export async function deleteDocument(
 
     res.json({ success: true });
   } catch (error) {
-    console.error('❌ Error deleting document:', error);
+    console.error('Error deleting document:', error);
     res.status(500).json({ error: 'Failed to delete document' });
   }
 }
 
-/**
- * POST /api/documents/search - Recherche sémantique
- */
-export async function searchDocuments(
-  req: Request,
-  res: Response
-): Promise<void> {
+export async function searchDocuments(req: Request, res: Response): Promise<void> {
   try {
     const { query, limit, maxDistance } = req.body;
 
@@ -158,16 +120,10 @@ export async function searchDocuments(
       return;
     }
 
-    const result = await searchDocumentsUseCase.execute({
-      query,
-      limit,
-      maxDistance,
-    });
-    // Adapter la réponse pour le frontend (attend 'results')
+    const result = await searchDocumentsUseCase.execute({ query, limit, maxDistance });
     res.json({ results: result.documents });
   } catch (error) {
-    console.error('❌ Error searching documents:', error);
+    console.error('Error searching documents:', error);
     res.status(500).json({ error: 'Failed to search documents' });
   }
 }
-

@@ -1,11 +1,3 @@
-/**
- * Ports primaires (driving) pour les use cases AI
- */
-
-// ============================================
-// TestAI
-// ============================================
-
 export interface AIComparisonResponse {
   cookie: {
     description: string;
@@ -27,4 +19,3 @@ export interface TestAIOutput {
 export interface ITestAIUseCase {
   execute(): Promise<TestAIOutput>;
 }
-

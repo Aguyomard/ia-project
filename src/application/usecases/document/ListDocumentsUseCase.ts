@@ -6,12 +6,8 @@ import type {
 import type { IDocumentService } from '../../ports/out/IDocumentService.js';
 import { getDocumentService } from '../../services/document/index.js';
 
-// Re-export types from ports
 export type { ListDocumentsInput, ListDocumentsOutput };
 
-/**
- * Use Case : Lister les documents avec pagination
- */
 export class ListDocumentsUseCase implements IListDocumentsUseCase {
   constructor(private readonly documentService: IDocumentService) {}
 
@@ -27,12 +23,10 @@ export class ListDocumentsUseCase implements IListDocumentsUseCase {
   }
 }
 
-// Factory avec injection par défaut
 export function createListDocumentsUseCase(
   documentService: IDocumentService = getDocumentService()
 ): ListDocumentsUseCase {
   return new ListDocumentsUseCase(documentService);
 }
 
-// Singleton avec dépendances par défaut
 export const listDocumentsUseCase = createListDocumentsUseCase();

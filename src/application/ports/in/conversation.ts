@@ -1,12 +1,4 @@
-/**
- * Ports primaires (driving) pour les use cases de conversation
- */
-
 import type { Conversation } from '../../../domain/conversation/index.js';
-
-// ============================================
-// CreateConversation
-// ============================================
 
 export interface CreateConversationInput {
   userId?: string;
@@ -19,10 +11,6 @@ export interface CreateConversationOutput {
 export interface ICreateConversationUseCase {
   execute(input: CreateConversationInput): Promise<CreateConversationOutput>;
 }
-
-// ============================================
-// SendMessage
-// ============================================
 
 export interface SendMessageInput {
   conversationId: string;
@@ -37,10 +25,6 @@ export interface SendMessageOutput {
 export interface ISendMessageUseCase {
   execute(input: SendMessageInput): Promise<SendMessageOutput>;
 }
-
-// ============================================
-// StreamMessage
-// ============================================
 
 export interface StreamMessageInput {
   conversationId: string;

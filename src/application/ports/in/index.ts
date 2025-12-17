@@ -1,9 +1,3 @@
-/**
- * Ports primaires (driving ports)
- * Interfaces exposées par la couche application
- */
-
-// Conversation
 export type {
   CreateConversationInput,
   CreateConversationOutput,
@@ -16,7 +10,6 @@ export type {
   IStreamMessageUseCase,
 } from './conversation.js';
 
-// Document
 export type {
   AddDocumentInput,
   AddDocumentOutput,
@@ -38,10 +31,4 @@ export type {
   ISearchDocumentsUseCase,
 } from './document.js';
 
-// AI
-export type {
-  AIComparisonResponse,
-  TestAIOutput,
-  ITestAIUseCase,
-} from './ai.js';
-
+export type { AIComparisonResponse, TestAIOutput, ITestAIUseCase } from './ai.js';
