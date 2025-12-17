@@ -11,7 +11,7 @@
  * await service.addDocument({ content: 'Guide Docker...' });
  *
  * // Rechercher des documents similaires
- * const results = await service.searchSimilar('comment configurer Docker ?');
+ * const results = await service.searchByQuery('comment configurer Docker ?');
  * ```
  */
 
@@ -22,20 +22,22 @@ export {
   resetDocumentService,
 } from './DocumentService.js';
 
-// Types
+// Types - réexportés depuis le domaine
 export type {
   Document,
+  DocumentWithDistance,
+  IDocumentRepository,
   CreateDocumentInput,
-  SearchResult,
   SearchOptions,
-} from './types.js';
+} from '../../domain/document/index.js';
 
-// Errors
+// Errors - réexportés depuis le domaine
 export {
   DocumentError,
   DocumentNotFoundError,
-  EmbeddingError,
-  DatabaseError,
-} from './errors.js';
+  EmbeddingGenerationError,
+  InvalidDocumentContentError,
+} from '../../domain/document/index.js';
 
-
+// Value Objects
+export { Embedding } from '../../domain/document/index.js';

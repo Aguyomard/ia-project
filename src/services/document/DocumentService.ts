@@ -1,20 +1,31 @@
 import type { PrismaClient } from '@prisma/client';
 import prismaClient from '../../config/prisma.js';
 import { getMistralService } from '../mistral/index.js';
+.import type {
+  Document,
+  DocumentWithDistance,
+  IDocumentRepository,
+  CreateDocumentInput,
+  SearchOptions,
+} from '../../domain/document/index.js';
 import {
   DocumentNotFoundError,
-  DatabaseError,
-  EmbeddingError,
-} from './errors.js';
-import type {
-  Document,
-  CreateDocumentInput,
-  SearchResult,
-  SearchOptions,
-} from './types.js';
+  EmbeddingGenerationError,
+} from '../../domain/document/index.js';
+import { DomainError } from '../../domain/shared/index.js';
+
+/**
+ * Erreur de base de données spécifique au service
+ */
+class DatabaseError extends DomainError {
+  constructor(message: string, originalError?: unknown) {
+    super(message, 'DATABASE_ERROR', originalError);
+  }
+}
 
 /**
  * Service pour gérer les documents et la recherche sémantique avec pgvector
+ * Implémente IDocumentRepository du domaine
  *
  * @example
  * ```ts
@@ -27,7 +38,7 @@ import type {
  * const results = await service.searchSimilar('comment installer Docker ?');
  * ```
  */
-export class DocumentService {
+export class DocumentService implements IDocumentRepository {
   private readonly prisma: PrismaClient;
 
   public constructor(prisma: PrismaClient = prismaClient) {
@@ -38,7 +49,7 @@ export class DocumentService {
    * Ajoute un document avec son embedding
    * Si l'embedding n'est pas fourni, il sera généré automatiquement via Mistral
    */
-  public async addDocument(input: CreateDocumentInput): Promise<Document> {
+  public async create(input: CreateDocumentInput): Promise<Document> {
     let embedding = input.embedding;
 
     // Générer l'embedding si non fourni
@@ -47,7 +58,10 @@ export class DocumentService {
         const mistral = getMistralService();
         embedding = await mistral.generateEmbedding(input.content);
       } catch (error) {
-        throw new EmbeddingError('Failed to generate embedding', error);
+        throw new EmbeddingGenerationError(
+          'Failed to generate embedding',
+          error
+        );
       }
     }
 
@@ -78,9 +92,16 @@ export class DocumentService {
   }
 
   /**
+   * Alias pour compatibilité
+   */
+  public async addDocument(input: CreateDocumentInput): Promise<Document> {
+    return this.create(input);
+  }
+
+  /**
    * Ajoute plusieurs documents en batch (plus efficace)
    */
-  public async addDocuments(contents: string[]): Promise<Document[]> {
+  public async createMany(contents: string[]): Promise<Document[]> {
     if (contents.length === 0) {
       return [];
     }
@@ -91,13 +112,16 @@ export class DocumentService {
       const mistral = getMistralService();
       embeddings = await mistral.generateEmbeddings(contents);
     } catch (error) {
-      throw new EmbeddingError('Failed to generate embeddings', error);
+      throw new EmbeddingGenerationError(
+        'Failed to generate embeddings',
+        error
+      );
     }
 
     // Insérer tous les documents
     const documents: Document[] = [];
     for (let i = 0; i < contents.length; i++) {
-      const doc = await this.addDocument({
+      const doc = await this.create({
         content: contents[i],
         embedding: embeddings[i],
       });
@@ -108,44 +132,130 @@ export class DocumentService {
   }
 
   /**
-   * Recherche les documents les plus similaires à une requête
-   * Utilise la distance cosinus (opérateur <=>)
+   * Alias pour compatibilité
    */
-  public async searchSimilar(
-    query: string,
-    options: SearchOptions = {}
-  ): Promise<SearchResult[]> {
-    const { limit = 5, maxDistance } = options;
+  public async addDocuments(contents: string[]): Promise<Document[]> {
+    return this.createMany(contents);
+  }
 
-    // Générer l'embedding de la requête
-    let queryEmbedding: number[];
+  /**
+   * Récupère un document par son ID
+   */
+  public async findById(id: number): Promise<Document | null> {
     try {
-      const mistral = getMistralService();
-      queryEmbedding = await mistral.generateEmbedding(query);
-    } catch (error) {
-      throw new EmbeddingError('Failed to generate query embedding', error);
-    }
+      const result = await this.prisma.$queryRawUnsafe<
+        { id: number | bigint; content: string; embedding: string | null }[]
+      >('SELECT id, content, embedding::text FROM documents WHERE id = $1', id);
 
-    return this.searchByEmbedding(queryEmbedding, options);
+      if (result.length === 0) {
+        return null;
+      }
+
+      const doc = result[0];
+      return {
+        id: Number(doc.id),
+        content: doc.content,
+        embedding: null, // On ne parse pas l'embedding ici
+      };
+    } catch (error) {
+      throw new DatabaseError('Failed to get document', error);
+    }
+  }
+
+  /**
+   * Récupère un document par son ID (throw si non trouvé)
+   * @throws {DocumentNotFoundError} Si le document n'existe pas
+   */
+  public async getDocument(id: number): Promise<Document> {
+    const document = await this.findById(id);
+    if (!document) {
+      throw new DocumentNotFoundError(id);
+    }
+    return document;
+  }
+
+  /**
+   * Liste tous les documents (sans embedding pour la performance)
+   */
+  public async findAll(limit = 100, offset = 0): Promise<Document[]> {
+    try {
+      const results = await this.prisma.$queryRawUnsafe<
+        { id: number | bigint; content: string }[]
+      >(
+        'SELECT id, content FROM documents ORDER BY id DESC LIMIT $1 OFFSET $2',
+        limit,
+        offset
+      );
+
+      return results.map((r) => ({
+        id: Number(r.id),
+        content: r.content,
+        embedding: null,
+      }));
+    } catch (error) {
+      throw new DatabaseError('Failed to list documents', error);
+    }
+  }
+
+  /**
+   * Alias pour compatibilité
+   */
+  public async listDocuments(limit = 100, offset = 0): Promise<Document[]> {
+    return this.findAll(limit, offset);
+  }
+
+  /**
+   * Compte le nombre total de documents
+   */
+  public async count(): Promise<number> {
+    try {
+      const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
+        'SELECT COUNT(*) as count FROM documents'
+      );
+      return Number(result[0]?.count ?? 0);
+    } catch (error) {
+      throw new DatabaseError('Failed to count documents', error);
+    }
+  }
+
+  /**
+   * Supprime un document
+   */
+  public async delete(id: number): Promise<boolean> {
+    try {
+      const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
+        `WITH deleted AS (
+          DELETE FROM documents WHERE id = $1 RETURNING id
+        )
+        SELECT COUNT(*) as count FROM deleted`,
+        id
+      );
+
+      return Number(result[0]?.count) > 0;
+    } catch (error) {
+      throw new DatabaseError('Failed to delete document', error);
+    }
+  }
+
+  /**
+   * Alias pour compatibilité
+   */
+  public async deleteDocument(id: number): Promise<boolean> {
+    return this.delete(id);
   }
 
   /**
    * Recherche les documents les plus similaires à un embedding donné
-   * Utile si tu as déjà l'embedding (évite un appel API)
    */
-  public async searchByEmbedding(
-    embedding: number[],
+  public async searchSimilar(
+    queryEmbedding: number[],
     options: SearchOptions = {}
-  ): Promise<SearchResult[]> {
+  ): Promise<DocumentWithDistance[]> {
     const { limit = 5, maxDistance } = options;
-    const embeddingStr = `[${embedding.join(',')}]`;
+    const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
     console.log(
-      `[DocumentService] Search with embedding dimension: ${embedding.length}, limit: ${limit}`
-    );
-    console.log(
-      `[DocumentService] Embedding first 3 values:`,
-      embedding.slice(0, 3)
+      `[DocumentService] Search with embedding dimension: ${queryEmbedding.length}, limit: ${limit}`
     );
 
     try {
@@ -173,28 +283,13 @@ export class DocumentService {
         );
       }
 
-      console.log(`[DocumentService] Raw results count: ${results.length}`);
-      if (results.length === 0) {
-        console.log('[DocumentService] DEBUG - Query params:', {
-          embeddingLength: embeddingStr.length,
-          embeddingStart: embeddingStr.substring(0, 100),
-          embeddingEnd: embeddingStr.substring(embeddingStr.length - 50),
-          limit,
-        });
-        // Test direct query to debug
-        const testResult = await this.prisma.$queryRawUnsafe<
-          { count: bigint }[]
-        >('SELECT COUNT(*) as count FROM documents');
-        console.log(
-          '[DocumentService] Documents count:',
-          Number(testResult[0]?.count)
-        );
-      }
+      console.log(`[DocumentService] Found ${results.length} results`);
 
       // Convertir bigint en number
       return results.map((r) => ({
         id: Number(r.id),
         content: r.content,
+        embedding: null,
         distance: Number(r.distance),
       }));
     } catch (error) {
@@ -203,88 +298,26 @@ export class DocumentService {
   }
 
   /**
-   * Récupère un document par son ID
+   * Recherche les documents les plus similaires à une requête texte
+   * Génère l'embedding automatiquement
    */
-  public async getDocument(id: number): Promise<Document> {
+  public async searchByQuery(
+    query: string,
+    options: SearchOptions = {}
+  ): Promise<DocumentWithDistance[]> {
+    // Générer l'embedding de la requête
+    let queryEmbedding: number[];
     try {
-      const result = await this.prisma.$queryRawUnsafe<
-        { id: number | bigint; content: string; embedding: string | null }[]
-      >('SELECT id, content, embedding::text FROM documents WHERE id = $1', id);
-
-      if (result.length === 0) {
-        throw new DocumentNotFoundError(id);
-      }
-
-      const doc = result[0];
-      return {
-        id: Number(doc.id),
-        content: doc.content,
-        embedding: null, // On ne parse pas l'embedding ici
-      };
+      const mistral = getMistralService();
+      queryEmbedding = await mistral.generateEmbedding(query);
     } catch (error) {
-      if (error instanceof DocumentNotFoundError) {
-        throw error;
-      }
-      throw new DatabaseError('Failed to get document', error);
-    }
-  }
-
-  /**
-   * Supprime un document
-   */
-  public async deleteDocument(id: number): Promise<boolean> {
-    try {
-      const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        `WITH deleted AS (
-          DELETE FROM documents WHERE id = $1 RETURNING id
-        )
-        SELECT COUNT(*) as count FROM deleted`,
-        id
+      throw new EmbeddingGenerationError(
+        'Failed to generate query embedding',
+        error
       );
-
-      return Number(result[0]?.count) > 0;
-    } catch (error) {
-      throw new DatabaseError('Failed to delete document', error);
     }
-  }
 
-  /**
-   * Compte le nombre total de documents
-   */
-  public async count(): Promise<number> {
-    try {
-      const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
-        'SELECT COUNT(*) as count FROM documents'
-      );
-      return Number(result[0]?.count ?? 0);
-    } catch (error) {
-      throw new DatabaseError('Failed to count documents', error);
-    }
-  }
-
-  /**
-   * Liste tous les documents (sans embedding pour la performance)
-   */
-  public async listDocuments(
-    limit = 100,
-    offset = 0
-  ): Promise<Omit<Document, 'embedding'>[]> {
-    try {
-      const results = await this.prisma.$queryRawUnsafe<
-        { id: number | bigint; content: string }[]
-      >(
-        'SELECT id, content FROM documents ORDER BY id DESC LIMIT $1 OFFSET $2',
-        limit,
-        offset
-      );
-
-      return results.map((r) => ({
-        id: Number(r.id),
-        content: r.content,
-      }));
-    } catch (error) {
-      throw new DatabaseError('Failed to list documents', error);
-    }
+    return this.searchSimilar(queryEmbedding, options);
   }
 }
 

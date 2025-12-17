@@ -1,41 +1,17 @@
 import type { Request, Response } from 'express';
-import { getMistralService } from '../services/mistral/index.js';
-
-interface AIComparisonResponse {
-  cookie: {
-    description: string;
-    avantages: string[];
-    inconvenients: string[];
-  };
-  localStorage: {
-    description: string;
-    avantages: string[];
-    inconvenients: string[];
-  };
-  conclusion: string;
-}
+import { testAIUseCase } from '../application/usecases/index.js';
 
 /**
  * GET /ai-test - Tester Mistral AI avec réponse JSON
  */
 export async function testAI(req: Request, res: Response): Promise<void> {
   try {
-    console.log('🤖 Envoi de la requête à Mistral (mode JSON)...');
-
-    const mistral = getMistralService();
-    const response = await mistral.chatJSON<AIComparisonResponse>(
-      'Compare cookie et localStorage pour le stockage web.',
-      {
-        systemPrompt: 'Tu es un expert technique senior en développement web.',
-      }
-    );
-
-    console.log('✅ Réponse JSON reçue de Mistral');
+    const result = await testAIUseCase.execute();
 
     res.json({
       result: 200,
       message: 'Mistral AI fonctionne !',
-      data: response,
+      data: result.data,
     });
   } catch (error) {
     console.error('❌ Erreur Mistral:', error);

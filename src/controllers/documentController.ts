@@ -1,5 +1,12 @@
 import type { Request, Response } from 'express';
-import { getDocumentService } from '../services/document/index.js';
+import {
+  addDocumentUseCase,
+  addDocumentsUseCase,
+  listDocumentsUseCase,
+  getDocumentUseCase,
+  deleteDocumentUseCase,
+  searchDocumentsUseCase,
+} from '../application/usecases/index.js';
 
 /**
  * POST /api/documents - Ajouter un document
@@ -18,15 +25,8 @@ export async function addDocument(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    console.log('📄 Adding document:', content.substring(0, 50) + '...');
-
-    const documentService = getDocumentService();
-    const document = await documentService.addDocument({ content });
-
-    console.log('✅ Document added:', document.id);
-    res
-      .status(201)
-      .json({ document: { id: document.id, content: document.content } });
+    const result = await addDocumentUseCase.execute({ content });
+    res.status(201).json(result);
   } catch (error) {
     console.error('❌ Error adding document:', error);
     res.status(500).json({ error: 'Failed to add document' });
@@ -55,15 +55,8 @@ export async function addDocuments(req: Request, res: Response): Promise<void> {
       }
     }
 
-    console.log(`📄 Adding ${contents.length} documents...`);
-
-    const documentService = getDocumentService();
-    const documents = await documentService.addDocuments(contents);
-
-    console.log(`✅ ${documents.length} documents added`);
-    res.status(201).json({
-      documents: documents.map((d) => ({ id: d.id, content: d.content })),
-    });
+    const result = await addDocumentsUseCase.execute({ contents });
+    res.status(201).json(result);
   } catch (error) {
     console.error('❌ Error adding documents:', error);
     res.status(500).json({ error: 'Failed to add documents' });
@@ -78,14 +71,11 @@ export async function listDocuments(
   res: Response
 ): Promise<void> {
   try {
-    const limit = parseInt(req.query.limit as string) || 100;
-    const offset = parseInt(req.query.offset as string) || 0;
+    const limit = parseInt(req.query.limit as string) || undefined;
+    const offset = parseInt(req.query.offset as string) || undefined;
 
-    const documentService = getDocumentService();
-    const documents = await documentService.listDocuments(limit, offset);
-    const count = await documentService.count();
-
-    res.json({ documents, total: count });
+    const result = await listDocumentsUseCase.execute({ limit, offset });
+    res.json(result);
   } catch (error) {
     console.error('❌ Error listing documents:', error);
     res.status(500).json({ error: 'Failed to list documents' });
@@ -104,10 +94,8 @@ export async function getDocument(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const documentService = getDocumentService();
-    const document = await documentService.getDocument(id);
-
-    res.json({ document: { id: document.id, content: document.content } });
+    const result = await getDocumentUseCase.execute({ id });
+    res.json(result);
   } catch (error: unknown) {
     if (
       error &&
@@ -138,15 +126,13 @@ export async function deleteDocument(
       return;
     }
 
-    const documentService = getDocumentService();
-    const deleted = await documentService.deleteDocument(id);
+    const result = await deleteDocumentUseCase.execute({ id });
 
-    if (!deleted) {
+    if (!result.deleted) {
       res.status(404).json({ error: 'Document not found' });
       return;
     }
 
-    console.log('🗑️ Document deleted:', id);
     res.json({ success: true });
   } catch (error) {
     console.error('❌ Error deleting document:', error);
@@ -162,23 +148,19 @@ export async function searchDocuments(
   res: Response
 ): Promise<void> {
   try {
-    const { query, limit = 5, maxDistance } = req.body;
+    const { query, limit, maxDistance } = req.body;
 
     if (!query || typeof query !== 'string') {
       res.status(400).json({ error: 'Query is required' });
       return;
     }
 
-    console.log('🔍 Searching documents:', query);
-
-    const documentService = getDocumentService();
-    const results = await documentService.searchSimilar(query, {
+    const result = await searchDocumentsUseCase.execute({
+      query,
       limit,
       maxDistance,
     });
-
-    console.log(`✅ Found ${results.length} results`);
-    res.json({ results });
+    res.json(result);
   } catch (error) {
     console.error('❌ Error searching documents:', error);
     res.status(500).json({ error: 'Failed to search documents' });

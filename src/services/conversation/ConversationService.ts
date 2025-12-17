@@ -1,20 +1,31 @@
-import type { PrismaClient, Conversation, Message } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import prismaClient from '../../config/prisma.js';
-import { ConversationNotFoundError, DatabaseError } from './errors.js';
 import { validateUUID, validateContent } from './validators.js';
-import type { ChatMessage, CreateMessageInput } from './types.js';
+import type {
+  Conversation,
+  ConversationWithMessages,
+  Message,
+  ChatMessage,
+  IConversationRepository,
+  CreateMessageInput,
+} from '../../domain/conversation/index.js';
+import {
+  ConversationNotFoundError,
+  InvalidConversationInputError,
+} from '../../domain/conversation/index.js';
 
 /**
  * Service pour gérer les conversations et messages avec Prisma
+ * Implémente IConversationRepository du domaine
  *
  * @example
  * ```ts
  * const service = getConversationService();
- * const conversation = await service.createConversation();
+ * const conversation = await service.create();
  * await service.addMessage({ conversationId: conversation.id, role: 'user', content: 'Hello' });
  * ```
  */
-export class ConversationService {
+export class ConversationService implements IConversationRepository {
   private readonly prisma: PrismaClient;
 
   public constructor(prisma: PrismaClient = prismaClient) {
@@ -24,38 +35,138 @@ export class ConversationService {
   /**
    * Crée une nouvelle conversation
    */
-  public async createConversation(
-    userId?: string,
-    title?: string
-  ): Promise<Conversation> {
+  public async create(userId?: string, title?: string): Promise<Conversation> {
     try {
-      return await this.prisma.conversation.create({
+      const result = await this.prisma.conversation.create({
         data: {
           userId: userId || null,
           title: title || null,
         },
       });
+      return result as Conversation;
     } catch (error) {
-      throw new DatabaseError('Failed to create conversation', error);
+      throw new InvalidConversationInputError(
+        `Failed to create conversation: ${error}`
+      );
     }
   }
 
   /**
-   * Récupère une conversation par son ID
-   * @throws {ConversationNotFoundError} Si la conversation n'existe pas
+   * Alias pour compatibilité avec l'ancien code
    */
-  public async getConversation(id: string): Promise<Conversation> {
+  public async createConversation(
+    userId?: string,
+    title?: string
+  ): Promise<Conversation> {
+    return this.create(userId, title);
+  }
+
+  /**
+   * Récupère une conversation par son ID
+   */
+  public async findById(id: string): Promise<Conversation | null> {
     validateUUID(id, 'conversationId');
 
     const conversation = await this.prisma.conversation.findUnique({
       where: { id },
     });
 
+    return conversation as Conversation | null;
+  }
+
+  /**
+   * Récupère une conversation par son ID (throw si non trouvée)
+   * @throws {ConversationNotFoundError} Si la conversation n'existe pas
+   */
+  public async getConversation(id: string): Promise<Conversation> {
+    const conversation = await this.findById(id);
     if (!conversation) {
       throw new ConversationNotFoundError(id);
     }
-
     return conversation;
+  }
+
+  /**
+   * Récupère une conversation avec ses messages
+   */
+  public async findByIdWithMessages(
+    id: string
+  ): Promise<ConversationWithMessages | null> {
+    validateUUID(id, 'conversationId');
+
+    const result = await this.prisma.conversation.findUnique({
+      where: { id },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    return result as ConversationWithMessages | null;
+  }
+
+  /**
+   * Alias pour compatibilité
+   */
+  public async getConversationWithMessages(
+    id: string
+  ): Promise<ConversationWithMessages | null> {
+    return this.findByIdWithMessages(id);
+  }
+
+  /**
+   * Liste les conversations d'un utilisateur
+   */
+  public async findByUserId(userId?: string): Promise<Conversation[]> {
+    const results = await this.prisma.conversation.findMany({
+      where: userId ? { userId } : undefined,
+      orderBy: { updatedAt: 'desc' },
+    });
+    return results as Conversation[];
+  }
+
+  /**
+   * Alias pour compatibilité
+   */
+  public async listConversations(userId?: string): Promise<Conversation[]> {
+    return this.findByUserId(userId);
+  }
+
+  /**
+   * Met à jour le titre d'une conversation
+   */
+  public async updateTitle(id: string, title: string): Promise<Conversation> {
+    validateUUID(id, 'conversationId');
+
+    const result = await this.prisma.conversation.update({
+      where: { id },
+      data: { title },
+    });
+    return result as Conversation;
+  }
+
+  /**
+   * Supprime une conversation et ses messages
+   */
+  public async delete(id: string): Promise<boolean> {
+    validateUUID(id, 'conversationId');
+
+    try {
+      await this.prisma.conversation.delete({
+        where: { id },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Alias pour compatibilité
+   */
+  public async deleteConversation(id: string): Promise<boolean> {
+    return this.delete(id);
   }
 
   /**
@@ -80,9 +191,11 @@ export class ConversationService {
         }),
       ]);
 
-      return message;
+      return message as Message;
     } catch (error) {
-      throw new DatabaseError('Failed to add message', error);
+      throw new InvalidConversationInputError(
+        `Failed to add message: ${error}`
+      );
     }
   }
 
@@ -92,10 +205,11 @@ export class ConversationService {
   public async getMessages(conversationId: string): Promise<Message[]> {
     validateUUID(conversationId, 'conversationId');
 
-    return this.prisma.message.findMany({
+    const results = await this.prisma.message.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
     });
+    return results as Message[];
   }
 
   /**
@@ -107,32 +221,6 @@ export class ConversationService {
       role: m.role,
       content: m.content,
     }));
-  }
-
-  /**
-   * Liste les conversations d'un utilisateur
-   */
-  public async listConversations(userId?: string): Promise<Conversation[]> {
-    return this.prisma.conversation.findMany({
-      where: userId ? { userId } : undefined,
-      orderBy: { updatedAt: 'desc' },
-    });
-  }
-
-  /**
-   * Supprime une conversation et ses messages
-   */
-  public async deleteConversation(id: string): Promise<boolean> {
-    validateUUID(id, 'conversationId');
-
-    try {
-      await this.prisma.conversation.delete({
-        where: { id },
-      });
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   /**
@@ -154,27 +242,8 @@ export class ConversationService {
         firstUserMessage.content.substring(0, 50) +
         (firstUserMessage.content.length > 50 ? '...' : '');
 
-      await this.prisma.conversation.update({
-        where: { id: conversationId },
-        data: { title },
-      });
+      await this.updateTitle(conversationId, title);
     }
-  }
-
-  /**
-   * Récupère une conversation avec tous ses messages
-   */
-  public async getConversationWithMessages(id: string) {
-    validateUUID(id, 'conversationId');
-
-    return this.prisma.conversation.findUnique({
-      where: { id },
-      include: {
-        messages: {
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-    });
   }
 }
 
