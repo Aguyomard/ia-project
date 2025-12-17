@@ -1,29 +1,40 @@
-import { getConversationService } from '../../../services/conversation/index.js';
-import { getMistralService } from '../../../services/mistral/index.js';
-import { getRAGService } from '../../../services/rag/index.js';
+import type {
+  ISendMessageUseCase,
+  SendMessageInput,
+  SendMessageOutput,
+} from '../../ports/in/conversation.js';
+import type { IConversationService } from '../../ports/out/IConversationService.js';
+import type { IMistralClient } from '../../ports/out/IMistralClient.js';
+import type { IRAGService } from '../../ports/out/IRAGService.js';
+import { getConversationService } from '../../services/conversation/index.js';
+import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
+import { getRAGService } from '../../services/rag/index.js';
 
-export interface SendMessageInput {
-  conversationId: string;
-  message: string;
-}
+// Re-export types from ports
+export type { SendMessageInput, SendMessageOutput };
 
-export interface SendMessageOutput {
-  response: string;
-  conversationId: string;
+export interface SendMessageDependencies {
+  conversationService: IConversationService;
+  mistralClient: IMistralClient;
+  ragService: IRAGService;
 }
 
 /**
  * Use Case : Envoyer un message et obtenir une réponse IA
  */
-export class SendMessageUseCase {
+export class SendMessageUseCase implements ISendMessageUseCase {
+  constructor(private readonly deps: SendMessageDependencies) {}
+
   async execute(input: SendMessageInput): Promise<SendMessageOutput> {
     const { conversationId, message } = input;
+    const { conversationService, mistralClient, ragService } = this.deps;
 
-    const conversationService = getConversationService();
-    const mistral = getMistralService();
-    const ragService = getRAGService();
-
-    console.log('💬 Chat message:', message, 'in conversation:', conversationId);
+    console.log(
+      '💬 Chat message:',
+      message,
+      'in conversation:',
+      conversationId
+    );
 
     // Ajouter le message utilisateur
     await conversationService.addMessage({
@@ -33,7 +44,8 @@ export class SendMessageUseCase {
     });
 
     // Récupérer l'historique
-    const chatHistory = await conversationService.getChatHistory(conversationId);
+    const chatHistory =
+      await conversationService.getChatHistory(conversationId);
 
     // RAG : Enrichir le system prompt avec les documents pertinents
     const ragContext = await ragService.buildEnrichedPrompt(message);
@@ -42,7 +54,7 @@ export class SendMessageUseCase {
     }
 
     // Envoyer à Mistral
-    const aiResponse = await mistral.complete(chatHistory);
+    const aiResponse = await mistralClient.complete(chatHistory);
 
     if (!aiResponse) {
       throw new Error('Empty response from Mistral');
@@ -67,5 +79,16 @@ export class SendMessageUseCase {
   }
 }
 
-export const sendMessageUseCase = new SendMessageUseCase();
+// Factory avec injection par défaut
+export function createSendMessageUseCase(
+  deps: Partial<SendMessageDependencies> = {}
+): SendMessageUseCase {
+  return new SendMessageUseCase({
+    conversationService: deps.conversationService ?? getConversationService(),
+    mistralClient: deps.mistralClient ?? getMistralClient(),
+    ragService: deps.ragService ?? getRAGService(),
+  });
+}
 
+// Singleton avec dépendances par défaut
+export const sendMessageUseCase = createSendMessageUseCase();

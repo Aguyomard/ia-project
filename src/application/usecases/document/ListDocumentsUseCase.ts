@@ -1,32 +1,38 @@
-import type { Document } from '../../../domain/document/index.js';
-import { getDocumentService } from '../../../services/document/index.js';
+import type {
+  IListDocumentsUseCase,
+  ListDocumentsInput,
+  ListDocumentsOutput,
+} from '../../ports/in/document.js';
+import type { IDocumentService } from '../../ports/out/IDocumentService.js';
+import { getDocumentService } from '../../services/document/index.js';
 
-export interface ListDocumentsInput {
-  limit?: number;
-  offset?: number;
-}
-
-export interface ListDocumentsOutput {
-  documents: Document[];
-  total: number;
-}
+// Re-export types from ports
+export type { ListDocumentsInput, ListDocumentsOutput };
 
 /**
  * Use Case : Lister les documents avec pagination
  */
-export class ListDocumentsUseCase {
+export class ListDocumentsUseCase implements IListDocumentsUseCase {
+  constructor(private readonly documentService: IDocumentService) {}
+
   async execute(input: ListDocumentsInput = {}): Promise<ListDocumentsOutput> {
     const { limit = 100, offset = 0 } = input;
 
-    const documentService = getDocumentService();
     const [documents, total] = await Promise.all([
-      documentService.listDocuments(limit, offset),
-      documentService.count(),
+      this.documentService.listDocuments(limit, offset),
+      this.documentService.count(),
     ]);
 
     return { documents, total };
   }
 }
 
-export const listDocumentsUseCase = new ListDocumentsUseCase();
+// Factory avec injection par défaut
+export function createListDocumentsUseCase(
+  documentService: IDocumentService = getDocumentService()
+): ListDocumentsUseCase {
+  return new ListDocumentsUseCase(documentService);
+}
 
+// Singleton avec dépendances par défaut
+export const listDocumentsUseCase = createListDocumentsUseCase();

@@ -1,28 +1,35 @@
-import { getConversationService } from '../../../services/conversation/index.js';
-import { getMistralService } from '../../../services/mistral/index.js';
-import { getRAGService } from '../../../services/rag/index.js';
+import type {
+  IStreamMessageUseCase,
+  StreamMessageInput,
+  StreamMessageChunk,
+} from '../../ports/in/conversation.js';
+import type { IConversationService } from '../../ports/out/IConversationService.js';
+import type { IMistralClient } from '../../ports/out/IMistralClient.js';
+import type { IRAGService } from '../../ports/out/IRAGService.js';
+import { getConversationService } from '../../services/conversation/index.js';
+import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
+import { getRAGService } from '../../services/rag/index.js';
 
-export interface StreamMessageInput {
-  conversationId: string;
-  message: string;
-}
+// Re-export types from ports
+export type { StreamMessageInput, StreamMessageChunk };
 
-export interface StreamMessageChunk {
-  chunk?: string;
-  done?: boolean;
-  fullResponse?: string;
+export interface StreamMessageDependencies {
+  conversationService: IConversationService;
+  mistralClient: IMistralClient;
+  ragService: IRAGService;
 }
 
 /**
  * Use Case : Envoyer un message et streamer la réponse IA
  */
-export class StreamMessageUseCase {
-  async *execute(input: StreamMessageInput): AsyncGenerator<StreamMessageChunk> {
-    const { conversationId, message } = input;
+export class StreamMessageUseCase implements IStreamMessageUseCase {
+  constructor(private readonly deps: StreamMessageDependencies) {}
 
-    const conversationService = getConversationService();
-    const mistral = getMistralService();
-    const ragService = getRAGService();
+  async *execute(
+    input: StreamMessageInput
+  ): AsyncGenerator<StreamMessageChunk> {
+    const { conversationId, message } = input;
+    const { conversationService, mistralClient, ragService } = this.deps;
 
     console.log('🌊 Stream chat:', message, 'in conversation:', conversationId);
 
@@ -34,7 +41,8 @@ export class StreamMessageUseCase {
     });
 
     // Récupérer l'historique
-    const chatHistory = await conversationService.getChatHistory(conversationId);
+    const chatHistory =
+      await conversationService.getChatHistory(conversationId);
 
     // RAG : Enrichir le system prompt avec les documents pertinents
     const ragContext = await ragService.buildEnrichedPrompt(message);
@@ -46,7 +54,7 @@ export class StreamMessageUseCase {
     let fullResponse = '';
 
     // Streamer les chunks
-    for await (const chunk of mistral.streamComplete(chatHistory)) {
+    for await (const chunk of mistralClient.streamComplete(chatHistory)) {
       fullResponse += chunk;
       yield { chunk };
     }
@@ -71,5 +79,16 @@ export class StreamMessageUseCase {
   }
 }
 
-export const streamMessageUseCase = new StreamMessageUseCase();
+// Factory avec injection par défaut
+export function createStreamMessageUseCase(
+  deps: Partial<StreamMessageDependencies> = {}
+): StreamMessageUseCase {
+  return new StreamMessageUseCase({
+    conversationService: deps.conversationService ?? getConversationService(),
+    mistralClient: deps.mistralClient ?? getMistralClient(),
+    ragService: deps.ragService ?? getRAGService(),
+  });
+}
 
+// Singleton avec dépendances par défaut
+export const streamMessageUseCase = createStreamMessageUseCase();

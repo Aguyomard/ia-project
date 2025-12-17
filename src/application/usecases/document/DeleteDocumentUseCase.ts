@@ -1,31 +1,39 @@
-import { getDocumentService } from '../../../services/document/index.js';
+import type {
+  IDeleteDocumentUseCase,
+  DeleteDocumentInput,
+  DeleteDocumentOutput,
+} from '../../ports/in/document.js';
+import type { IDocumentService } from '../../ports/out/IDocumentService.js';
+import { getDocumentService } from '../../services/document/index.js';
 
-export interface DeleteDocumentInput {
-  id: number;
-}
-
-export interface DeleteDocumentOutput {
-  success: boolean;
-  deleted: boolean;
-}
+// Re-export types from ports
+export type { DeleteDocumentInput, DeleteDocumentOutput };
 
 /**
  * Use Case : Supprimer un document
  */
-export class DeleteDocumentUseCase {
+export class DeleteDocumentUseCase implements IDeleteDocumentUseCase {
+  constructor(private readonly documentService: IDocumentService) {}
+
   async execute(input: DeleteDocumentInput): Promise<DeleteDocumentOutput> {
     const { id } = input;
 
-    const documentService = getDocumentService();
-    const deleted = await documentService.deleteDocument(id);
+    const deleted = await this.documentService.deleteDocument(id);
 
     if (deleted) {
       console.log('🗑️ Document deleted:', id);
     }
 
-    return { success: true, deleted };
+    return { success: deleted, id };
   }
 }
 
-export const deleteDocumentUseCase = new DeleteDocumentUseCase();
+// Factory avec injection par défaut
+export function createDeleteDocumentUseCase(
+  documentService: IDocumentService = getDocumentService()
+): DeleteDocumentUseCase {
+  return new DeleteDocumentUseCase(documentService);
+}
 
+// Singleton avec dépendances par défaut
+export const deleteDocumentUseCase = createDeleteDocumentUseCase();

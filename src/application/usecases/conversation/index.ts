@@ -1,21 +1,33 @@
+// Use Cases
 export {
   CreateConversationUseCase,
   createConversationUseCase,
-  type CreateConversationInput,
-  type CreateConversationOutput,
+  createCreateConversationUseCase,
 } from './CreateConversationUseCase.js';
 
 export {
   SendMessageUseCase,
   sendMessageUseCase,
-  type SendMessageInput,
-  type SendMessageOutput,
+  createSendMessageUseCase,
+  type SendMessageDependencies,
 } from './SendMessageUseCase.js';
 
 export {
   StreamMessageUseCase,
   streamMessageUseCase,
-  type StreamMessageInput,
-  type StreamMessageChunk,
+  createStreamMessageUseCase,
+  type StreamMessageDependencies,
 } from './StreamMessageUseCase.js';
 
+// Types (re-exported from ports)
+export type {
+  CreateConversationInput,
+  CreateConversationOutput,
+  ICreateConversationUseCase,
+  SendMessageInput,
+  SendMessageOutput,
+  ISendMessageUseCase,
+  StreamMessageInput,
+  StreamMessageChunk,
+  IStreamMessageUseCase,
+} from '../../ports/in/conversation.js';

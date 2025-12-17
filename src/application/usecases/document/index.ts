@@ -1,42 +1,58 @@
+// Use Cases
 export {
   AddDocumentUseCase,
   addDocumentUseCase,
-  type AddDocumentInput,
-  type AddDocumentOutput,
+  createAddDocumentUseCase,
 } from './AddDocumentUseCase.js';
 
 export {
   AddDocumentsUseCase,
   addDocumentsUseCase,
-  type AddDocumentsInput,
-  type AddDocumentsOutput,
+  createAddDocumentsUseCase,
 } from './AddDocumentsUseCase.js';
 
 export {
   ListDocumentsUseCase,
   listDocumentsUseCase,
-  type ListDocumentsInput,
-  type ListDocumentsOutput,
+  createListDocumentsUseCase,
 } from './ListDocumentsUseCase.js';
 
 export {
   GetDocumentUseCase,
   getDocumentUseCase,
-  type GetDocumentInput,
-  type GetDocumentOutput,
+  createGetDocumentUseCase,
 } from './GetDocumentUseCase.js';
 
 export {
   DeleteDocumentUseCase,
   deleteDocumentUseCase,
-  type DeleteDocumentInput,
-  type DeleteDocumentOutput,
+  createDeleteDocumentUseCase,
 } from './DeleteDocumentUseCase.js';
 
 export {
   SearchDocumentsUseCase,
   searchDocumentsUseCase,
-  type SearchDocumentsInput,
-  type SearchDocumentsOutput,
+  createSearchDocumentsUseCase,
 } from './SearchDocumentsUseCase.js';
 
+// Types (re-exported from ports)
+export type {
+  AddDocumentInput,
+  AddDocumentOutput,
+  IAddDocumentUseCase,
+  AddDocumentsInput,
+  AddDocumentsOutput,
+  IAddDocumentsUseCase,
+  ListDocumentsInput,
+  ListDocumentsOutput,
+  IListDocumentsUseCase,
+  GetDocumentInput,
+  GetDocumentOutput,
+  IGetDocumentUseCase,
+  DeleteDocumentInput,
+  DeleteDocumentOutput,
+  IDeleteDocumentUseCase,
+  SearchDocumentsInput,
+  SearchDocumentsOutput,
+  ISearchDocumentsUseCase,
+} from '../../ports/in/document.js';

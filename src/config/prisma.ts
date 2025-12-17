@@ -1,19 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
-// Singleton pour éviter de créer plusieurs instances en dev (hot reload)
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
-}
-
-export default prisma;
-
+/**
+ * @deprecated Utiliser infrastructure/config/prisma
+ */
+export { prisma, default } from '../infrastructure/config/prisma.js';

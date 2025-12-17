@@ -1,35 +1,42 @@
-import { getDocumentService } from '../../../services/document/index.js';
-import type { DocumentWithDistance } from '../../../domain/document/index.js';
+import type {
+  ISearchDocumentsUseCase,
+  SearchDocumentsInput,
+  SearchDocumentsOutput,
+} from '../../ports/in/document.js';
+import type { IDocumentService } from '../../ports/out/IDocumentService.js';
+import { getDocumentService } from '../../services/document/index.js';
 
-export interface SearchDocumentsInput {
-  query: string;
-  limit?: number;
-  maxDistance?: number;
-}
-
-export interface SearchDocumentsOutput {
-  results: DocumentWithDistance[];
-}
+// Re-export types from ports
+export type { SearchDocumentsInput, SearchDocumentsOutput };
 
 /**
  * Use Case : Recherche sémantique dans les documents
  */
-export class SearchDocumentsUseCase {
+export class SearchDocumentsUseCase implements ISearchDocumentsUseCase {
+  constructor(private readonly documentService: IDocumentService) {}
+
   async execute(input: SearchDocumentsInput): Promise<SearchDocumentsOutput> {
     const { query, limit = 5, maxDistance } = input;
 
     console.log('🔍 Searching documents:', query);
 
-    const documentService = getDocumentService();
-    const results = await documentService.searchByQuery(query, {
+    const documents = await this.documentService.searchByQuery(query, {
       limit,
       maxDistance,
     });
 
-    console.log(`✅ Found ${results.length} results`);
+    console.log(`✅ Found ${documents.length} results`);
 
-    return { results };
+    return { documents, count: documents.length };
   }
 }
 
-export const searchDocumentsUseCase = new SearchDocumentsUseCase();
+// Factory avec injection par défaut
+export function createSearchDocumentsUseCase(
+  documentService: IDocumentService = getDocumentService()
+): SearchDocumentsUseCase {
+  return new SearchDocumentsUseCase(documentService);
+}
+
+// Singleton avec dépendances par défaut
+export const searchDocumentsUseCase = createSearchDocumentsUseCase();

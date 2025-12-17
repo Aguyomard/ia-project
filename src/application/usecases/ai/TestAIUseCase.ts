@@ -1,32 +1,24 @@
-import { getMistralService } from '../../../services/mistral/index.js';
+import type {
+  ITestAIUseCase,
+  AIComparisonResponse,
+  TestAIOutput,
+} from '../../ports/in/ai.js';
+import type { IMistralClient } from '../../ports/out/IMistralClient.js';
+import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
 
-export interface AIComparisonResponse {
-  cookie: {
-    description: string;
-    avantages: string[];
-    inconvenients: string[];
-  };
-  localStorage: {
-    description: string;
-    avantages: string[];
-    inconvenients: string[];
-  };
-  conclusion: string;
-}
-
-export interface TestAIOutput {
-  data: AIComparisonResponse;
-}
+// Re-export types from ports
+export type { AIComparisonResponse, TestAIOutput };
 
 /**
  * Use Case : Tester Mistral AI avec une comparaison cookie/localStorage
  */
-export class TestAIUseCase {
+export class TestAIUseCase implements ITestAIUseCase {
+  constructor(private readonly mistralClient: IMistralClient) {}
+
   async execute(): Promise<TestAIOutput> {
     console.log('🤖 Envoi de la requête à Mistral (mode JSON)...');
 
-    const mistral = getMistralService();
-    const response = await mistral.chatJSON<AIComparisonResponse>(
+    const response = await this.mistralClient.chatJSON<AIComparisonResponse>(
       'Compare cookie et localStorage pour le stockage web.',
       {
         systemPrompt: 'Tu es un expert technique senior en développement web.',
@@ -39,5 +31,12 @@ export class TestAIUseCase {
   }
 }
 
-export const testAIUseCase = new TestAIUseCase();
+// Factory avec injection par défaut
+export function createTestAIUseCase(
+  mistralClient: IMistralClient = getMistralClient()
+): TestAIUseCase {
+  return new TestAIUseCase(mistralClient);
+}
 
+// Singleton avec dépendances par défaut
+export const testAIUseCase = createTestAIUseCase();
