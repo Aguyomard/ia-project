@@ -7,8 +7,9 @@ import type {
   SearchOptions,
 } from '../../../domain/document/index.js';
 import { EmbeddingGenerationError } from '../../../domain/document/index.js';
+import type { IDocumentService } from '../../ports/out/IDocumentService.js';
 
-export class DocumentService {
+export class DocumentService implements IDocumentService {
   async addDocument(input: CreateDocumentInput): Promise<Document> {
     let embedding = input.embedding;
 

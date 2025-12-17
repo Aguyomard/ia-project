@@ -7,9 +7,13 @@ import type {
   CreateMessageInput,
 } from '../../../domain/conversation/index.js';
 import { ConversationNotFoundError } from '../../../domain/conversation/index.js';
+import type { IConversationService } from '../../ports/out/IConversationService.js';
 
-export class ConversationService {
-  async createConversation(userId?: string, title?: string): Promise<Conversation> {
+export class ConversationService implements IConversationService {
+  async createConversation(
+    userId?: string,
+    title?: string
+  ): Promise<Conversation> {
     const repository = getConversationRepository();
     return repository.create(userId, title);
   }
@@ -23,7 +27,9 @@ export class ConversationService {
     return conversation;
   }
 
-  async getConversationWithMessages(id: string): Promise<ConversationWithMessages | null> {
+  async getConversationWithMessages(
+    id: string
+  ): Promise<ConversationWithMessages | null> {
     const repository = getConversationRepository();
     return repository.findByIdWithMessages(id);
   }

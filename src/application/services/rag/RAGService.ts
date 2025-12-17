@@ -5,8 +5,9 @@ import {
   type RAGConfig,
   type RAGContext,
 } from './types.js';
+import type { IRAGService } from '../../ports/out/IRAGService.js';
 
-export class RAGService {
+export class RAGService implements IRAGService {
   private config: RAGConfig;
 
   constructor(config: Partial<RAGConfig> = {}) {

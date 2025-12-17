@@ -11,6 +11,7 @@ import {
   getModelContextLimit,
   estimateTotalTokens,
 } from './tokenizer.js';
+import type { IMistralClient } from '../../../application/ports/out/IMistralClient.js';
 
 /**
  * Client pour interagir avec l'API Mistral AI
@@ -21,7 +22,7 @@ import {
  * const response = await mistral.chat('Bonjour !');
  * ```
  */
-export class MistralClient {
+export class MistralClient implements IMistralClient {
   private readonly client: Mistral;
   private readonly defaultModel: string;
   private readonly defaultTemperature: number;
