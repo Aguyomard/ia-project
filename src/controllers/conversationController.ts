@@ -1,9 +1,59 @@
 import type { Request, Response } from 'express';
 import { getConversationService } from '../services/conversation/index.js';
 import { getMistralService } from '../services/mistral/index.js';
+import { getDocumentService } from '../services/document/index.js';
 
-const SYSTEM_PROMPT =
+const BASE_SYSTEM_PROMPT =
   'Tu es un assistant IA amical et serviable. Tu réponds en français de manière concise et utile.';
+
+/**
+ * Construit un system prompt enrichi avec le contexte RAG
+ */
+async function buildRAGSystemPrompt(userMessage: string): Promise<string> {
+  try {
+    const documentService = getDocumentService();
+    const docCount = await documentService.count();
+
+    // Si pas de documents, retourner le prompt de base
+    if (docCount === 0) {
+      return BASE_SYSTEM_PROMPT;
+    }
+
+    // Chercher les documents pertinents
+    const relevantDocs = await documentService.searchSimilar(userMessage, {
+      limit: 3,
+      maxDistance: 0.7, // Ignorer les docs trop éloignés
+    });
+
+    // Si aucun document pertinent, retourner le prompt de base
+    if (relevantDocs.length === 0) {
+      return BASE_SYSTEM_PROMPT;
+    }
+
+    // Construire le contexte
+    const context = relevantDocs
+      .map((doc, i) => `[Document ${i + 1}]\n${doc.content}`)
+      .join('\n\n---\n\n');
+
+    console.log(
+      `📚 RAG: ${relevantDocs.length} documents trouvés (distances: ${relevantDocs.map((d) => d.distance.toFixed(2)).join(', ')})`
+    );
+
+    return `${BASE_SYSTEM_PROMPT}
+
+Tu as accès aux documents suivants pour t'aider à répondre :
+
+${context}
+
+Instructions :
+- Utilise ces documents pour répondre si pertinent
+- Si l'information n'est pas dans les documents, utilise tes connaissances générales
+- Ne mentionne pas explicitement "selon les documents" sauf si l'utilisateur le demande`;
+  } catch (error) {
+    console.error('⚠️ RAG search failed, using base prompt:', error);
+    return BASE_SYSTEM_PROMPT;
+  }
+}
 
 /**
  * POST /api/conversations - Créer une nouvelle conversation
@@ -21,7 +71,7 @@ export async function createConversation(
     await conversationService.addMessage({
       conversationId: conversation.id,
       role: 'system',
-      content: SYSTEM_PROMPT,
+      content: BASE_SYSTEM_PROMPT,
     });
 
     console.log('📝 New conversation created:', conversation.id);
@@ -104,9 +154,17 @@ export async function chat(req: Request, res: Response): Promise<void> {
       content: message,
     });
 
-    // Récupérer l'historique et envoyer à Mistral
+    // Récupérer l'historique
     const chatHistory =
       await conversationService.getChatHistory(conversationId);
+
+    // 🆕 RAG : Enrichir le system prompt avec les documents pertinents
+    const enrichedSystemPrompt = await buildRAGSystemPrompt(message);
+    if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
+      chatHistory[0].content = enrichedSystemPrompt;
+    }
+
+    // Envoyer à Mistral
     const aiResponse = await mistral.complete(chatHistory);
 
     if (!aiResponse) {
@@ -169,6 +227,12 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
     // Récupérer l'historique
     const chatHistory =
       await conversationService.getChatHistory(conversationId);
+
+    // 🆕 RAG : Enrichir le system prompt avec les documents pertinents
+    const enrichedSystemPrompt = await buildRAGSystemPrompt(message);
+    if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
+      chatHistory[0].content = enrichedSystemPrompt;
+    }
 
     // Configurer SSE (Server-Sent Events)
     res.setHeader('Content-Type', 'text/event-stream');
