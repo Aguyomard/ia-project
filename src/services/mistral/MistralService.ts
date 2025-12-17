@@ -292,6 +292,113 @@ export class MistralService {
   public getDefaultModel(): string {
     return this.defaultModel;
   }
+
+  // ============================================
+  // Embeddings
+  // ============================================
+
+  /**
+   * Génère un embedding (vecteur) pour un texte donné
+   *
+   * Utilise le modèle mistral-embed qui retourne des vecteurs de dimension 1024
+   *
+   * @example
+   * ```ts
+   * const embedding = await mistral.generateEmbedding('Bonjour le monde');
+   * console.log(embedding.length); // 1024
+   * ```
+   */
+  public async generateEmbedding(text: string): Promise<number[]> {
+    console.log(
+      `[MistralService] Generating embedding for text (${text.length} chars)`
+    );
+
+    try {
+      const response = await withRetry(
+        () =>
+          this.client.embeddings.create({
+            model: 'mistral-embed',
+            inputs: [text],
+          }),
+        this.retryOptions
+      );
+
+      const embedding = response.data?.[0]?.embedding;
+
+      if (!embedding) {
+        throw new MistralAPIError('No embedding returned from Mistral');
+      }
+
+      console.log(
+        `[MistralService] Embedding generated (dimension: ${embedding.length})`
+      );
+
+      return embedding;
+    } catch (error) {
+      console.error('[MistralService] Embedding generation failed:', error);
+      throw new MistralAPIError('Failed to generate embedding', error);
+    }
+  }
+
+  /**
+   * Génère des embeddings pour plusieurs textes en une seule requête (batch)
+   *
+   * Plus efficace que d'appeler generateEmbedding plusieurs fois
+   *
+   * @example
+   * ```ts
+   * const embeddings = await mistral.generateEmbeddings([
+   *   'Premier document',
+   *   'Deuxième document'
+   * ]);
+   * console.log(embeddings.length); // 2
+   * ```
+   */
+  public async generateEmbeddings(texts: string[]): Promise<number[][]> {
+    if (texts.length === 0) {
+      return [];
+    }
+
+    console.log(
+      `[MistralService] Generating embeddings for ${texts.length} texts`
+    );
+
+    try {
+      const response = await withRetry(
+        () =>
+          this.client.embeddings.create({
+            model: 'mistral-embed',
+            inputs: texts,
+          }),
+        this.retryOptions
+      );
+
+      const embeddings =
+        response.data
+          ?.map((item) => item.embedding)
+          .filter(
+            (embedding): embedding is number[] => embedding !== undefined
+          ) ?? [];
+
+      if (embeddings.length !== texts.length) {
+        throw new MistralAPIError(
+          `Expected ${texts.length} embeddings, got ${embeddings.length}`
+        );
+      }
+
+      console.log(
+        `[MistralService] ${embeddings.length} embeddings generated (dimension: ${embeddings[0]?.length})`
+      );
+
+      return embeddings;
+    } catch (error) {
+      console.error(
+        '[MistralService] Batch embedding generation failed:',
+        error
+      );
+      throw new MistralAPIError('Failed to generate embeddings', error);
+    }
+  }
 }
 
 // ============================================

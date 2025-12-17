@@ -12,9 +12,11 @@
 4. [Gestion du Contexte - Sliding Window](#4-gestion-du-contexte---sliding-window)
 5. [Streaming avec SSE](#5-streaming-avec-sse)
 6. [Persistance avec Prisma](#6-persistance-avec-prisma)
-7. [Architecture MVC](#7-architecture-mvc)
-8. [Frontend Vue.js](#8-frontend-vuejs)
-9. [Concepts clés à retenir](#9-concepts-clés-à-retenir)
+7. [Embeddings et Recherche Vectorielle](#7-embeddings-et-recherche-vectorielle)
+8. [RAG - Retrieval-Augmented Generation](#8-rag---retrieval-augmented-generation)
+9. [Architecture MVC](#9-architecture-mvc)
+10. [Frontend Vue.js](#10-frontend-vuejs)
+11. [Concepts clés à retenir](#11-concepts-clés-à-retenir)
 
 ---
 
@@ -24,9 +26,8 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                         FRONTEND (Vue.js)                        │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
-│  │  ChatBot    │  │  Components │  │  Vue Router             │  │
-│  │  View       │  │  (Input,    │  │  /chatbot               │  │
-│  │             │  │   Messages) │  │                         │  │
+│  │  ChatBot    │  │  Documents  │  │  Vue Router             │  │
+│  │  View       │  │  View (RAG) │  │  /chat, /documents      │  │
 │  └─────────────┘  └─────────────┘  └─────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -38,25 +39,26 @@
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                        ROUTES                             │   │
 │  │  POST /api/chat          POST /api/conversations          │   │
-│  │  POST /api/chat/stream   GET  /api/conversations          │   │
+│  │  POST /api/chat/stream   GET  /api/documents              │   │
+│  │  POST /api/documents     POST /api/documents/search       │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │                              ▼                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                     CONTROLLERS                           │   │
-│  │  conversationController.ts    aiController.ts             │   │
+│  │  conversationController    documentController             │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │                              ▼                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │                       SERVICES                            │   │
-│  │  ┌─────────────────┐    ┌─────────────────────────────┐  │   │
-│  │  │ MistralService  │    │ ConversationService         │  │   │
-│  │  │ - chat()        │    │ - create()                  │  │   │
-│  │  │ - complete()    │    │ - addMessage()              │  │   │
-│  │  │ - streamComplete│    │ - getChatHistory()          │  │   │
-│  │  │ - chatJSON()    │    │                             │  │   │
-│  │  └─────────────────┘    └─────────────────────────────┘  │   │
+│  │  ┌─────────────────┐  ┌─────────────┐  ┌──────────────┐  │   │
+│  │  │ MistralService  │  │Conversation │  │ Document     │  │   │
+│  │  │ - chat()        │  │Service      │  │ Service      │  │   │
+│  │  │ - complete()    │  │- create()   │  │- addDocument │  │   │
+│  │  │ - streamComplete│  │- addMessage │  │- searchSimilar│ │   │
+│  │  │ - generateEmbed │  │- getHistory │  │- (RAG)       │  │   │
+│  │  └─────────────────┘  └─────────────┘  └──────────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │                              ▼                                   │
@@ -71,7 +73,8 @@
               ▼                               ▼
 ┌─────────────────────────┐    ┌─────────────────────────┐
 │     MISTRAL AI API      │    │     POSTGRESQL          │
-│   (via SDK officiel)    │    │   (via Prisma ORM)      │
+│  - Chat (mistral-tiny)  │    │  - Prisma ORM           │
+│  - Embeddings           │    │  - pgvector (RAG)       │
 └─────────────────────────┘    └─────────────────────────┘
 ```
 
@@ -438,41 +441,297 @@ await this.prisma.$transaction([
 
 ---
 
-## 7. Architecture MVC
+## 7. Embeddings et Recherche Vectorielle
 
-### 7.1 Structure des fichiers
+### 7.1 Qu'est-ce qu'un Embedding ?
+
+Un **embedding** est une représentation vectorielle d'un texte. Il transforme des mots/phrases en tableaux de nombres qui capturent le **sens sémantique**.
+
+```
+"Comment installer Docker ?"
+        ↓ generateEmbedding()
+[0.023, -0.156, 0.789, 0.034, ...] // 1024 nombres (dimension Mistral)
+```
+
+**Propriété clé** : Deux textes similaires en sens auront des vecteurs proches dans l'espace.
+
+### 7.2 Génération d'embeddings avec Mistral
+
+```typescript
+// src/services/mistral/MistralService.ts
+
+public async generateEmbedding(text: string): Promise<number[]> {
+  const response = await this.client.embeddings.create({
+    model: 'mistral-embed',
+    inputs: [text],
+  });
+  return response.data[0].embedding; // number[1024]
+}
+
+// Version batch (plus efficace pour plusieurs textes)
+public async generateEmbeddings(texts: string[]): Promise<number[][]> {
+  const response = await this.client.embeddings.create({
+    model: 'mistral-embed',
+    inputs: texts,
+  });
+  return response.data.map(item => item.embedding);
+}
+```
+
+### 7.3 Stockage avec pgvector
+
+**pgvector** est une extension PostgreSQL pour stocker et rechercher des vecteurs.
+
+```sql
+-- Activer l'extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Table de documents avec embeddings
+CREATE TABLE documents (
+  id BIGSERIAL PRIMARY KEY,
+  content TEXT,
+  embedding vector(1024)  -- Type vector de dimension 1024
+);
+
+-- Index pour accélérer les recherches (optionnel mais recommandé)
+CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+```
+
+### 7.4 Distance Cosinus
+
+La **distance cosinus** mesure l'angle entre deux vecteurs :
+
+| Distance  | Signification              |
+| --------- | -------------------------- |
+| 0         | Identiques                 |
+| < 0.3     | Très similaires ✅         |
+| 0.3 - 0.6 | Liés au sujet ⚠️           |
+| > 0.6     | Pas vraiment pertinents ❌ |
+
+```sql
+-- Opérateur <=> pour la distance cosinus dans pgvector
+SELECT content, embedding <=> '[0.1, 0.2, ...]'::vector AS distance
+FROM documents
+ORDER BY distance
+LIMIT 5;
+```
+
+### 7.5 DocumentService
+
+```typescript
+// src/services/document/DocumentService.ts
+
+export class DocumentService {
+  // Ajouter un document (embedding généré automatiquement)
+  async addDocument(input: { content: string }): Promise<Document> {
+    const embedding = await mistral.generateEmbedding(input.content);
+    const embeddingStr = `[${embedding.join(',')}]`;
+
+    // Prisma ne supporte pas nativement pgvector → SQL brut
+    return await this.prisma.$queryRawUnsafe(
+      `INSERT INTO documents (content, embedding)
+       VALUES ($1, $2::vector)
+       RETURNING id, content`,
+      input.content,
+      embeddingStr
+    );
+  }
+
+  // Recherche sémantique
+  async searchSimilar(query: string, limit = 5): Promise<SearchResult[]> {
+    const queryEmbedding = await mistral.generateEmbedding(query);
+    const embeddingStr = `[${queryEmbedding.join(',')}]`;
+
+    return await this.prisma.$queryRawUnsafe(
+      `SELECT id, content, embedding <=> $1::vector AS distance
+       FROM documents
+       ORDER BY distance
+       LIMIT $2`,
+      embeddingStr,
+      limit
+    );
+  }
+}
+```
+
+### 7.6 Pourquoi $queryRawUnsafe ?
+
+Prisma ne supporte pas nativement le type `vector` de pgvector. On utilise donc :
+
+| Méthode                           | Sécurité     | Usage                                   |
+| --------------------------------- | ------------ | --------------------------------------- |
+| `prisma.model.create()`           | ✅ Sûr       | Types standards (Conversation, Message) |
+| `$queryRaw` template              | ✅ Sûr       | SQL paramétré mais limité               |
+| `$queryRawUnsafe` + `$1, $2`      | ✅ Sûr       | SQL avec types custom (vector)          |
+| `$queryRawUnsafe` + concaténation | ❌ Dangereux | JAMAIS faire ça !                       |
+
+**Important** : On utilise des paramètres positionnels (`$1`, `$2`) qui sont échappés par PostgreSQL, donc c'est sécurisé.
+
+### 7.7 Algorithmes de recherche vectorielle
+
+| Algorithme  | Type  | Vitesse        | Précision | Usage           |
+| ----------- | ----- | -------------- | --------- | --------------- |
+| Force brute | Exact | 🐢 Lent        | 100%      | Petits datasets |
+| **IVFFlat** | ANN   | 🐇 Rapide      | ~95%      | Bon compromis   |
+| **HNSW**    | ANN   | 🚀 Très rapide | ~98%      | Production      |
+
+**ANN** = Approximate Nearest Neighbor (sacrifice un peu de précision pour la vitesse)
+
+---
+
+## 8. RAG - Retrieval-Augmented Generation
+
+### 8.1 Concept
+
+Le **RAG** permet à un LLM de répondre avec des **connaissances externes** (documents privés, FAQ, etc.) sans fine-tuning.
+
+```
+Question utilisateur
+        ↓
+1. Générer l'embedding de la question
+        ↓
+2. Chercher les documents similaires en base
+        ↓
+3. Construire un prompt avec le contexte trouvé
+        ↓
+4. Envoyer au LLM
+        ↓
+Réponse enrichie par les documents
+```
+
+### 8.2 Avantages du RAG
+
+| Avantage                         | Description                                |
+| -------------------------------- | ------------------------------------------ |
+| **Données privées**              | Le LLM peut répondre sur vos docs internes |
+| **Réduction des hallucinations** | Réponses basées sur des faits              |
+| **Pas de fine-tuning**           | Moins coûteux, plus simple                 |
+| **Mise à jour facile**           | Ajouter/retirer des docs à chaud           |
+
+### 8.3 Implémentation
+
+```typescript
+// Exemple de flux RAG complet
+
+async function chatWithRAG(userQuestion: string, conversationId: string) {
+  const docs = getDocumentService();
+  const mistral = getMistralService();
+  const conversations = getConversationService();
+
+  // 1. Chercher les documents pertinents
+  const relevantDocs = await docs.searchSimilar(userQuestion, { limit: 3 });
+
+  // 2. Construire le contexte
+  const context = relevantDocs.map((doc) => doc.content).join('\n\n---\n\n');
+
+  // 3. Créer le prompt enrichi
+  const systemPrompt = `Tu es un assistant. Réponds en te basant sur ces documents :
+
+${context}
+
+Si l'information n'est pas dans les documents, dis-le clairement.`;
+
+  // 4. Récupérer l'historique et ajouter le system prompt
+  const history = await conversations.getChatHistory(conversationId);
+  history[0] = { role: 'system', content: systemPrompt };
+
+  // 5. Obtenir la réponse
+  return await mistral.complete(history);
+}
+```
+
+### 8.4 Chunking (Découpage)
+
+Pour les longs documents, on les découpe en **chunks** avant de générer les embeddings :
+
+```typescript
+function chunkText(text: string, maxLength = 500): string[] {
+  const sentences = text.split(/[.!?]+/);
+  const chunks: string[] = [];
+  let current = '';
+
+  for (const sentence of sentences) {
+    if ((current + sentence).length > maxLength) {
+      chunks.push(current.trim());
+      current = sentence;
+    } else {
+      current += sentence + '. ';
+    }
+  }
+  if (current) chunks.push(current.trim());
+
+  return chunks;
+}
+
+// Utilisation
+const longDocument = '... 5000 mots ...';
+const chunks = chunkText(longDocument);
+await documentService.addDocuments(chunks); // Chaque chunk a son embedding
+```
+
+**Pourquoi ?** Un seul vecteur pour un long document "dilue" le sens. Des chunks permettent une recherche plus précise.
+
+### 8.5 Stratégies de chunking
+
+| Stratégie           | Description                | Usage                        |
+| ------------------- | -------------------------- | ---------------------------- |
+| **Fixed size**      | 500 caractères             | Simple, rapide               |
+| **Sentence-based**  | Par phrases                | Préserve le sens             |
+| **Paragraph-based** | Par paragraphes            | Documents structurés         |
+| **Overlap**         | Chevauchement entre chunks | Évite de couper des idées    |
+| **Semantic**        | Par similarité sémantique  | Le plus précis, mais coûteux |
+
+### 8.6 Modèles d'embedding
+
+| Modèle                   | Fournisseur | Dimension | Coût             |
+| ------------------------ | ----------- | --------- | ---------------- |
+| `mistral-embed`          | Mistral     | 1024      | ~0.1€/1M tokens  |
+| `text-embedding-3-small` | OpenAI      | 1536      | ~0.02$/1M tokens |
+| `text-embedding-3-large` | OpenAI      | 3072      | ~0.13$/1M tokens |
+| `all-MiniLM-L6-v2`       | Open source | 384       | Gratuit (local)  |
+| `nomic-embed-text`       | Open source | 768       | Gratuit (local)  |
+
+---
+
+## 9. Architecture MVC
+
+### 9.1 Structure des fichiers
 
 ```
 src/
 ├── routes/
 │   ├── index.ts              # Agrège toutes les routes
-│   └── conversationRoutes.ts # Routes /conversations, /chat
+│   ├── conversationRoutes.ts # Routes /conversations, /chat
+│   └── documentRoutes.ts     # Routes /documents (RAG)
 ├── controllers/
-│   └── conversationController.ts  # Logique HTTP
+│   ├── conversationController.ts  # Logique HTTP chat
+│   └── documentController.ts      # Logique HTTP documents
 ├── services/
 │   ├── mistral/
-│   │   ├── MistralService.ts # Logique IA
+│   │   ├── MistralService.ts # Logique IA (chat + embeddings)
 │   │   ├── types.ts          # Interfaces
 │   │   ├── errors.ts         # Erreurs custom
 │   │   └── index.ts          # Exports
-│   └── conversation/
-│       └── ConversationService.ts  # Logique DB
+│   ├── conversation/
+│   │   └── ConversationService.ts  # Logique DB conversations
+│   └── document/
+│       └── DocumentService.ts      # Logique DB documents (RAG)
 ├── utils/
 │   ├── retry.ts              # Exponential backoff
 │   └── tokenizer.ts          # Sliding window
 └── server.ts                 # Point d'entrée
 ```
 
-### 7.2 Responsabilités
+### 9.2 Responsabilités
 
 | Couche      | Responsabilité                            |
 | ----------- | ----------------------------------------- |
 | Routes      | Définir les endpoints                     |
 | Controllers | Gérer HTTP (req/res), valider, orchestrer |
-| Services    | Logique métier (IA, DB)                   |
+| Services    | Logique métier (IA, DB, Embeddings)       |
 | Utils       | Fonctions réutilisables                   |
 
-### 7.3 Flux d'une requête
+### 9.3 Flux d'une requête
 
 ```
 POST /api/chat
@@ -497,9 +756,9 @@ POST /api/chat
 
 ---
 
-## 8. Frontend Vue.js
+## 10. Frontend Vue.js
 
-### 8.1 Composants
+### 10.1 Composants
 
 ```
 frontend/src/
@@ -513,7 +772,7 @@ frontend/src/
     └── index.ts              # Vue Router
 ```
 
-### 8.2 Gestion du streaming
+### 10.2 Gestion du streaming
 
 ```vue
 <script setup>
@@ -542,9 +801,9 @@ async function sendMessage(content) {
 
 ---
 
-## 9. Concepts clés à retenir
+## 11. Concepts clés à retenir
 
-### 9.1 Patterns
+### 11.1 Patterns
 
 | Pattern                  | Où                   | Pourquoi                               |
 | ------------------------ | -------------------- | -------------------------------------- |
@@ -553,26 +812,30 @@ async function sendMessage(content) {
 | **AsyncIterator**        | streamComplete()     | Traiter les données au fur et à mesure |
 | **Exponential Backoff**  | withRetry()          | Résilience aux erreurs API             |
 | **Sliding Window**       | applySlidingWindow() | Gérer les limites de contexte          |
+| **RAG**                  | DocumentService      | Enrichir le LLM avec des docs privés   |
 
-### 9.2 Bonnes pratiques
+### 11.2 Bonnes pratiques
 
 1. **Séparation des responsabilités** : Routes → Controllers → Services
 2. **Typage fort** : Interfaces TypeScript partout
 3. **Gestion des erreurs** : Classes d'erreurs custom
 4. **Configuration** : Variables d'environnement, pas de hardcode
 5. **Logging** : Console.log pour debug, avec préfixes `[ServiceName]`
+6. **Paramètres SQL** : Toujours utiliser `$1, $2` au lieu de concaténation
 
-### 9.3 Points de vigilance
+### 11.3 Points de vigilance
 
-| Problème               | Solution                       |
-| ---------------------- | ------------------------------ |
-| Rate limiting (429)    | Retry avec exponential backoff |
-| Context overflow (400) | Sliding window                 |
-| Latence UX             | Streaming SSE                  |
-| Perte de contexte      | Persistance PostgreSQL         |
-| Erreurs silencieuses   | Classes d'erreurs typées       |
+| Problème                 | Solution                       |
+| ------------------------ | ------------------------------ |
+| Rate limiting (429)      | Retry avec exponential backoff |
+| Context overflow (400)   | Sliding window                 |
+| Latence UX               | Streaming SSE                  |
+| Perte de contexte        | Persistance PostgreSQL         |
+| Erreurs silencieuses     | Classes d'erreurs typées       |
+| Longs documents          | Chunking avant embedding       |
+| Résultats non pertinents | Filtrer par maxDistance        |
 
-### 9.4 Commandes utiles
+### 11.4 Commandes utiles
 
 ```bash
 # Générer le client Prisma
@@ -587,23 +850,48 @@ pnpm db:push --force-reset
 # Logs Docker
 docker compose logs app --tail=20
 docker compose logs frontend --tail=20
+
+# Activer pgvector
+docker compose exec postgres psql -U postgres -d ia_chat -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# Voir les documents indexés
+docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT id, LEFT(content, 50) FROM documents;"
 ```
 
 ---
 
 ## 📝 Checklist de révision
 
+### Architecture & Patterns
+
 - [ ] Je sais expliquer l'architecture MVC
 - [ ] Je comprends le pattern Singleton
 - [ ] Je sais implémenter un retry avec exponential backoff
 - [ ] Je comprends pourquoi le jitter est important
 - [ ] Je sais ce qu'est une sliding window et pourquoi c'est nécessaire
+
+### Streaming & Frontend
+
 - [ ] Je peux expliquer le flux SSE (Server-Sent Events)
 - [ ] Je comprends les AsyncIterables (`async *` et `yield`)
+- [ ] Je peux consommer un stream côté frontend
+
+### Base de données
+
 - [ ] Je sais créer un schéma Prisma
 - [ ] Je comprends les transactions et niveaux d'isolation
-- [ ] Je peux consommer un stream côté frontend
+- [ ] Je sais utiliser `$queryRawUnsafe` avec des paramètres positionnels
+
+### Embeddings & RAG
+
+- [ ] Je comprends ce qu'est un embedding (texte → vecteur)
+- [ ] Je sais générer un embedding avec `mistral-embed`
+- [ ] Je comprends la distance cosinus et comment l'interpréter
+- [ ] Je sais stocker des vecteurs avec pgvector
+- [ ] Je peux implémenter une recherche sémantique
+- [ ] Je comprends le concept de RAG et son utilité
+- [ ] Je sais pourquoi le chunking est important pour les longs documents
 
 ---
 
-_Document généré le 15/12/2024_
+_Document mis à jour le 17/12/2024_
