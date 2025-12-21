@@ -7,16 +7,33 @@
       <div class="message-bubble">
         {{ content }}
       </div>
+      <div v-if="sources && sources.length > 0" class="message-sources">
+        <span class="sources-icon">📚</span>
+        <span class="sources-label">Sources :</span>
+        <span 
+          v-for="(source, index) in sources" 
+          :key="index" 
+          class="source-tag"
+        >
+          {{ source.title }} ({{ source.similarity }}%)
+        </span>
+      </div>
       <span class="message-time">{{ time }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+interface Source {
+  title: string;
+  similarity: number;
+}
+
 defineProps<{
   role: 'user' | 'assistant';
   content: string;
   time: string;
+  sources?: Source[];
 }>();
 </script>
 
@@ -93,6 +110,37 @@ defineProps<{
   font-size: 0.7rem;
   color: #64748b;
   padding: 0 4px;
+}
+
+.message-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(102, 126, 234, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.sources-icon {
+  font-size: 0.85rem;
+}
+
+.sources-label {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.source-tag {
+  font-size: 0.7rem;
+  padding: 3px 8px;
+  background: rgba(102, 126, 234, 0.2);
+  color: #a5b4fc;
+  border-radius: 12px;
+  font-weight: 500;
 }
 </style>
 

@@ -17,6 +17,16 @@ export const DEFAULT_RAG_CONFIG: RAGConfig = {
   maxDistance: 0.7,
 };
 
+/** Source utilisée pour enrichir la réponse */
+export interface RAGSource {
+  /** Titre du document */
+  title: string;
+  /** Score de similarité (0-100%) */
+  similarity: number;
+  /** Distance brute */
+  distance: number;
+}
+
 export interface RAGContext {
   /** Le prompt enrichi avec le contexte documentaire */
   enrichedPrompt: string;
@@ -24,5 +34,7 @@ export interface RAGContext {
   documentsFound: number;
   /** Les distances des documents utilisés */
   distances: number[];
+  /** Sources détaillées pour affichage */
+  sources: RAGSource[];
 }
 

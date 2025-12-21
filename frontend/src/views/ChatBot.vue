@@ -14,6 +14,7 @@
           :role="message.role"
           :content="message.content"
           :time="message.time"
+          :sources="message.sources"
         />
 
         <!-- Loading désactivé car on utilise le streaming -->
@@ -39,10 +40,16 @@ import {
 
 const API_URL = 'http://localhost:3000';
 
+interface Source {
+  title: string;
+  similarity: number;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   time: string;
+  sources?: Source[];
 }
 
 const messages = ref<Message[]>([]);
@@ -143,7 +150,7 @@ async function sendMessage(content: string) {
       const text = decoder.decode(value);
       const lines = text.split('\n');
 
-      for (const line of lines) {
+          for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
             const data = JSON.parse(line.slice(6));
@@ -156,6 +163,10 @@ async function sendMessage(content: string) {
 
             if (data.done) {
               console.log('✅ Stream completed');
+              // Ajouter les sources si présentes
+              if (data.sources && data.sources.length > 0) {
+                messages.value[assistantMessageIndex].sources = data.sources;
+              }
             }
 
             if (data.error) {

@@ -265,6 +265,7 @@ export class DocumentRepository implements IDocumentRepository {
       let results: {
         id: number | bigint;
         document_id: number;
+        document_title: string | null;
         content: string;
         chunk_index: number;
         distance: number;
@@ -272,10 +273,11 @@ export class DocumentRepository implements IDocumentRepository {
 
       if (maxDistance !== undefined) {
         results = await this.prisma.$queryRawUnsafe(
-          `SELECT id, document_id, content, chunk_index, 
-                  embedding <=> $1::vector AS distance
-           FROM chunks
-           WHERE embedding <=> $1::vector < $2
+          `SELECT c.id, c.document_id, d.title as document_title, c.content, c.chunk_index, 
+                  c.embedding <=> $1::vector AS distance
+           FROM chunks c
+           JOIN documents d ON c.document_id = d.id
+           WHERE c.embedding <=> $1::vector < $2
            ORDER BY distance
            LIMIT $3`,
           embeddingStr,
@@ -284,9 +286,10 @@ export class DocumentRepository implements IDocumentRepository {
         );
       } else {
         results = await this.prisma.$queryRawUnsafe(
-          `SELECT id, document_id, content, chunk_index,
-                  embedding <=> $1::vector AS distance
-           FROM chunks
+          `SELECT c.id, c.document_id, d.title as document_title, c.content, c.chunk_index,
+                  c.embedding <=> $1::vector AS distance
+           FROM chunks c
+           JOIN documents d ON c.document_id = d.id
            ORDER BY distance
            LIMIT $2`,
           embeddingStr,
@@ -297,6 +300,7 @@ export class DocumentRepository implements IDocumentRepository {
       return results.map((r) => ({
         id: Number(r.id),
         documentId: Number(r.document_id),
+        documentTitle: r.document_title,
         content: r.content,
         embedding: [],
         chunkIndex: r.chunk_index,

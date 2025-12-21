@@ -30,6 +30,8 @@ export interface Chunk {
 export interface ChunkWithDistance extends Chunk {
   /** Distance cosinus (plus petit = plus similaire) */
   distance: number;
+  /** Titre du document parent (optionnel, rempli lors de la recherche) */
+  documentTitle?: string | null;
 }
 
 /**

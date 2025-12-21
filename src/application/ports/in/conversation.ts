@@ -31,10 +31,16 @@ export interface StreamMessageInput {
   message: string;
 }
 
+export interface StreamMessageSource {
+  title: string;
+  similarity: number;
+}
+
 export interface StreamMessageChunk {
   chunk?: string;
   done?: boolean;
   fullResponse?: string;
+  sources?: StreamMessageSource[];
 }
 
 export interface IStreamMessageUseCase {

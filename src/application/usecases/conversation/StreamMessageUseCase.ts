@@ -2,6 +2,7 @@ import type {
   IStreamMessageUseCase,
   StreamMessageInput,
   StreamMessageChunk,
+  StreamMessageSource,
 } from '../../ports/in/conversation.js';
 import type { IConversationService } from '../../ports/out/IConversationService.js';
 import type { IMistralClient } from '../../ports/out/IMistralClient.js';
@@ -10,7 +11,7 @@ import { getConversationService } from '../../services/conversation/index.js';
 import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
 import { getRAGService } from '../../services/rag/index.js';
 
-export type { StreamMessageInput, StreamMessageChunk };
+export type { StreamMessageInput, StreamMessageChunk, StreamMessageSource };
 
 export interface StreamMessageDependencies {
   conversationService: IConversationService;
@@ -59,7 +60,13 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
       await conversationService.generateTitle(conversationId);
     }
 
-    yield { done: true, fullResponse };
+    // Mapper les sources RAG pour le frontend
+    const sources: StreamMessageSource[] = ragContext.sources.map((s) => ({
+      title: s.title,
+      similarity: s.similarity,
+    }));
+
+    yield { done: true, fullResponse, sources };
   }
 }
 

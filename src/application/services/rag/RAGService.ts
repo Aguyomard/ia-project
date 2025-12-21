@@ -4,8 +4,17 @@ import {
   DEFAULT_RAG_CONFIG,
   type RAGConfig,
   type RAGContext,
+  type RAGSource,
 } from './types.js';
 import type { IRAGService } from '../../ports/out/IRAGService.js';
+
+/**
+ * Convertit une distance cosinus (0-2) en pourcentage de similarité (0-100%)
+ * Distance 0 = 100% similaire, Distance 1 = 50%, Distance 2 = 0%
+ */
+function distanceToSimilarity(distance: number): number {
+  return Math.round((1 - distance / 2) * 100);
+}
 
 export class RAGService implements IRAGService {
   private config: RAGConfig;
@@ -24,6 +33,7 @@ export class RAGService implements IRAGService {
           enrichedPrompt: BASE_SYSTEM_PROMPT,
           documentsFound: 0,
           distances: [],
+          sources: [],
         };
       }
 
@@ -37,6 +47,7 @@ export class RAGService implements IRAGService {
           enrichedPrompt: BASE_SYSTEM_PROMPT,
           documentsFound: 0,
           distances: [],
+          sources: [],
         };
       }
 
@@ -45,6 +56,13 @@ export class RAGService implements IRAGService {
         .join('\n\n---\n\n');
 
       const distances = relevantChunks.map((c) => c.distance);
+
+      // Construire les sources pour l'affichage
+      const sources: RAGSource[] = relevantChunks.map((chunk) => ({
+        title: chunk.documentTitle || `Document #${chunk.documentId}`,
+        similarity: distanceToSimilarity(chunk.distance),
+        distance: chunk.distance,
+      }));
 
       const enrichedPrompt = `${BASE_SYSTEM_PROMPT}
 
@@ -57,10 +75,15 @@ Instructions :
 - Si l'information n'est pas dans les documents, utilise tes connaissances générales
 - Ne mentionne pas explicitement "selon les documents" sauf si l'utilisateur le demande`;
 
+      console.log(
+        `📚 RAG: ${relevantChunks.length} sources (${sources.map((s) => `${s.title}: ${s.similarity}%`).join(', ')})`
+      );
+
       return {
         enrichedPrompt,
         documentsFound: relevantChunks.length,
         distances,
+        sources,
       };
     } catch (error) {
       console.error('RAG search failed, using base prompt:', error);
@@ -68,6 +91,7 @@ Instructions :
         enrichedPrompt: BASE_SYSTEM_PROMPT,
         documentsFound: 0,
         distances: [],
+        sources: [],
       };
     }
   }
