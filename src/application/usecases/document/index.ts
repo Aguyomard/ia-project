@@ -35,6 +35,12 @@ export {
   createSearchDocumentsUseCase,
 } from './SearchDocumentsUseCase.js';
 
+export {
+  AddDocumentWithChunkingUseCase,
+  addDocumentWithChunkingUseCase,
+  createAddDocumentWithChunkingUseCase,
+} from './AddDocumentWithChunkingUseCase.js';
+
 // Types (re-exported from ports)
 export type {
   AddDocumentInput,
@@ -55,4 +61,8 @@ export type {
   SearchDocumentsInput,
   SearchDocumentsOutput,
   ISearchDocumentsUseCase,
+  ChunkInfo,
+  AddDocumentWithChunkingInput,
+  AddDocumentWithChunkingOutput,
+  IAddDocumentWithChunkingUseCase,
 } from '../../ports/in/document.js';

@@ -1,4 +1,7 @@
-import type { Document, DocumentWithDistance } from '../../../domain/document/index.js';
+import type {
+  Document,
+  DocumentWithDistance,
+} from '../../../domain/document/index.js';
 
 export interface AddDocumentInput {
   content: string;
@@ -77,4 +80,45 @@ export interface SearchDocumentsOutput {
 
 export interface ISearchDocumentsUseCase {
   execute(input: SearchDocumentsInput): Promise<SearchDocumentsOutput>;
+}
+
+// === Chunking avec overlap ===
+
+export interface ChunkInfo {
+  /** Contenu du chunk */
+  content: string;
+  /** Index du chunk (0-based) */
+  index: number;
+  /** Position de début dans le document original */
+  startOffset: number;
+  /** Position de fin dans le document original */
+  endOffset: number;
+}
+
+export interface AddDocumentWithChunkingInput {
+  /** Contenu du document à découper */
+  content: string;
+  /** Taille maximale de chaque chunk en caractères (défaut: 500) */
+  chunkSize?: number;
+  /** Chevauchement entre les chunks en caractères (défaut: 100) */
+  overlap?: number;
+}
+
+export interface AddDocumentWithChunkingOutput {
+  /** Documents créés (un par chunk) */
+  documents: import('../../../domain/document/index.js').Document[];
+  /** Informations sur les chunks générés */
+  chunks: ChunkInfo[];
+  /** Nombre total de chunks */
+  totalChunks: number;
+  /** Longueur du document original */
+  originalLength: number;
+  /** ID du document source (contient le texte original) */
+  sourceId?: number;
+}
+
+export interface IAddDocumentWithChunkingUseCase {
+  execute(
+    input: AddDocumentWithChunkingInput
+  ): Promise<AddDocumentWithChunkingOutput>;
 }

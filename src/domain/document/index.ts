@@ -1,5 +1,9 @@
 // Entities
-export type { Document, DocumentWithDistance } from './entities/Document.js';
+export type {
+  Document,
+  DocumentWithDistance,
+  DocumentWithChunks,
+} from './entities/Document.js';
 
 // Value Objects
 export { Embedding } from './valueObjects/Embedding.js';
@@ -18,4 +22,3 @@ export type {
   CreateDocumentInput,
   SearchOptions,
 } from './repositories/IDocumentRepository.js';
-

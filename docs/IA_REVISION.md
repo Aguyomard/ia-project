@@ -14,7 +14,7 @@
 6. [Persistance avec Prisma](#6-persistance-avec-prisma)
 7. [Embeddings et Recherche Vectorielle](#7-embeddings-et-recherche-vectorielle)
 8. [RAG - Retrieval-Augmented Generation](#8-rag---retrieval-augmented-generation)
-9. [Architecture MVC](#9-architecture-mvc)
+9. [Architecture Clean Architecture](#9-architecture-clean-architecture)
 10. [Frontend Vue.js](#10-frontend-vuejs)
 11. [Concepts clés à retenir](#11-concepts-clés-à-retenir)
 
@@ -34,38 +34,29 @@
                               │ HTTP / SSE
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                         BACKEND (Node.js/Express)                │
+│                  BACKEND (Clean Architecture)                    │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                        ROUTES                             │   │
-│  │  POST /api/chat          POST /api/conversations          │   │
-│  │  POST /api/chat/stream   GET  /api/documents              │   │
-│  │  POST /api/documents     POST /api/documents/search       │   │
+│  │ 🔴 INFRASTRUCTURE                                         │   │
+│  │  ├── http/ (Routes, Controllers)                         │   │
+│  │  ├── persistence/ (Repositories Prisma)                  │   │
+│  │  └── external/ (MistralClient)                           │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │                              ▼                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                     CONTROLLERS                           │   │
-│  │  conversationController    documentController             │   │
+│  │ 🔵 APPLICATION                                            │   │
+│  │  ├── usecases/ (StreamMessageUseCase, AddDocumentUseCase)│   │
+│  │  ├── services/ (ConversationService, RAGService)         │   │
+│  │  └── ports/ (Interfaces IMistralClient, IRAGService)     │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                              │                                   │
 │                              ▼                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                       SERVICES                            │   │
-│  │  ┌─────────────────┐  ┌─────────────┐  ┌──────────────┐  │   │
-│  │  │ MistralService  │  │Conversation │  │ Document     │  │   │
-│  │  │ - chat()        │  │Service      │  │ Service      │  │   │
-│  │  │ - complete()    │  │- create()   │  │- addDocument │  │   │
-│  │  │ - streamComplete│  │- addMessage │  │- searchSimilar│ │   │
-│  │  │ - generateEmbed │  │- getHistory │  │- (RAG)       │  │   │
-│  │  └─────────────────┘  └─────────────┘  └──────────────┘  │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │                        UTILS                              │   │
-│  │  retry.ts (Exponential Backoff)                          │   │
-│  │  tokenizer.ts (Sliding Window)                           │   │
+│  │ 🟢 DOMAIN                                                 │   │
+│  │  ├── entities/ (Conversation, Message, Document)         │   │
+│  │  ├── valueObjects/ (MessageRole, Embedding, UUID)        │   │
+│  │  └── repositories/ (Interfaces IConversationRepository)  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -642,32 +633,7 @@ Si l'information n'est pas dans les documents, dis-le clairement.`;
 
 ### 8.4 Chunking (Découpage)
 
-Pour les longs documents, on les découpe en **chunks** avant de générer les embeddings :
-
-```typescript
-function chunkText(text: string, maxLength = 500): string[] {
-  const sentences = text.split(/[.!?]+/);
-  const chunks: string[] = [];
-  let current = '';
-
-  for (const sentence of sentences) {
-    if ((current + sentence).length > maxLength) {
-      chunks.push(current.trim());
-      current = sentence;
-    } else {
-      current += sentence + '. ';
-    }
-  }
-  if (current) chunks.push(current.trim());
-
-  return chunks;
-}
-
-// Utilisation
-const longDocument = '... 5000 mots ...';
-const chunks = chunkText(longDocument);
-await documentService.addDocuments(chunks); // Chaque chunk a son embedding
-```
+Pour les longs documents, on les découpe en **chunks** avant de générer les embeddings.
 
 **Pourquoi ?** Un seul vecteur pour un long document "dilue" le sens. Des chunks permettent une recherche plus précise.
 
@@ -678,10 +644,168 @@ await documentService.addDocuments(chunks); // Chaque chunk a son embedding
 | **Fixed size**      | 500 caractères             | Simple, rapide               |
 | **Sentence-based**  | Par phrases                | Préserve le sens             |
 | **Paragraph-based** | Par paragraphes            | Documents structurés         |
-| **Overlap**         | Chevauchement entre chunks | Évite de couper des idées    |
+| **Overlap**         | Chevauchement entre chunks | Évite de couper des idées ✅ |
 | **Semantic**        | Par similarité sémantique  | Le plus précis, mais coûteux |
 
-### 8.6 Modèles d'embedding
+### 8.6 Chunking avec Overlap (Implémenté)
+
+Le **chevauchement (overlap)** est crucial : il permet de préserver le contexte entre les chunks.
+
+```
+Document : |-------- 1200 caractères --------|
+
+Sans overlap :
+  Chunk 1: |--- 500 ---|
+  Chunk 2:             |--- 500 ---|   ← Coupure nette, perte de contexte !
+  Chunk 3:                         |--- 200 ---|
+
+Avec overlap (100 chars) :
+  Chunk 1: |--- 500 ---|
+  Chunk 2:        |--- 500 ---|   ← Les 100 derniers chars de Chunk 1
+                                     sont les 100 premiers de Chunk 2
+  Chunk 3:              |--- 500 ---|
+```
+
+**Notre implémentation** :
+
+```typescript
+// src/application/services/chunking/ChunkingService.ts
+
+export class ChunkingService {
+  /**
+   * Découpe un texte en chunks avec chevauchement
+   *
+   * @param text - Le texte à découper
+   * @param options.chunkSize - Taille max d'un chunk (défaut: 500)
+   * @param options.overlap - Chevauchement entre chunks (défaut: 100)
+   * @param options.separators - Séparateurs pour couper proprement
+   */
+  chunkText(text: string, options: ChunkingOptions = {}): ChunkingResult {
+    const {
+      chunkSize = 500,
+      overlap = 100,
+      separators = ['\n\n', '\n', '. ', ' '],
+    } = options;
+
+    // Validation : l'overlap doit être < chunkSize
+    if (overlap >= chunkSize) {
+      throw new Error('Overlap must be smaller than chunkSize');
+    }
+
+    const chunks: Chunk[] = [];
+    let currentPosition = 0;
+
+    while (currentPosition < text.length) {
+      // 1. Définir la fin potentielle du chunk
+      let endPosition = Math.min(currentPosition + chunkSize, text.length);
+
+      // 2. Chercher un bon point de coupure (séparateur)
+      if (endPosition < text.length) {
+        const chunkContent = text.slice(currentPosition, endPosition);
+        const splitPoint = this.findBestSplitPoint(chunkContent, separators);
+        if (splitPoint > chunkSize / 2) {
+          endPosition = currentPosition + splitPoint;
+        }
+      }
+
+      // 3. Extraire et sauvegarder le chunk
+      chunks.push({
+        content: text.slice(currentPosition, endPosition).trim(),
+        index: chunks.length,
+        startOffset: currentPosition,
+        endOffset: endPosition,
+      });
+
+      // 4. Avancer avec overlap : step = chunkSize - overlap
+      currentPosition += chunkSize - overlap;
+    }
+
+    return { chunks, totalChunks: chunks.length, originalLength: text.length };
+  }
+
+  private findBestSplitPoint(text: string, separators: string[]): number {
+    // Cherche le dernier séparateur de haute priorité
+    for (const separator of separators) {
+      const lastIndex = text.lastIndexOf(separator);
+      if (lastIndex !== -1) return lastIndex + separator.length;
+    }
+    return -1;
+  }
+}
+```
+
+**Endpoint API** :
+
+```bash
+# POST /api/documents/chunked
+curl -X POST http://localhost:3000/api/documents/chunked \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content": "Très long document de 5000 mots...",
+    "chunkSize": 500,
+    "overlap": 100
+  }'
+
+# Réponse :
+{
+  "message": "Document split into 12 chunks",
+  "sourceId": 27,                          # ID du document source (original)
+  "totalChunks": 12,
+  "originalLength": 5000,
+  "documents": [
+    { "id": 28, "sourceId": 27, "chunkIndex": 0, "contentPreview": "..." },
+    { "id": 29, "sourceId": 27, "chunkIndex": 1, "contentPreview": "..." },
+    ...
+  ],
+  "chunks": [...]
+}
+```
+
+**Tracking des chunks en base de données** :
+
+```sql
+-- Structure de la table documents avec tracking
+SELECT id, LEFT(content, 30), source_id, chunk_index, embedding IS NOT NULL
+FROM documents WHERE id >= 27;
+
+ id |           left           | source_id | chunk_index | has_embedding
+----+--------------------------+-----------+-------------+---------------
+ 27 | Le machine learning est  |     NULL  |        NULL | false  -- Document source
+ 28 | Le machine learning est  |        27 |           0 | true   -- Chunk 0
+ 29 | Les algorithmes de ML... |        27 |           1 | true   -- Chunk 1
+ 30 | Le deep learning est...  |        27 |           2 | true   -- Chunk 2
+```
+
+**Suppression en cascade** : Supprimer le document source (id=27) supprime automatiquement tous ses chunks grâce à `ON DELETE CASCADE`.
+
+```bash
+curl -X DELETE http://localhost:3000/api/documents/27
+# → Les documents 28, 29, 30 sont automatiquement supprimés
+```
+
+**Calcul du step** :
+
+```
+step = chunkSize - overlap = 500 - 100 = 400
+
+Document de 1200 caractères :
+  Chunk 1 : position 0 → 500 (500 chars)
+  Chunk 2 : position 400 → 900 (500 chars)
+  Chunk 3 : position 800 → 1200 (400 chars)
+
+Estimation : ceil((1200 - 100) / 400) = ceil(2.75) = 3 chunks
+```
+
+**Avantages de l'overlap** :
+
+| Avantage                     | Explication                                                |
+| ---------------------------- | ---------------------------------------------------------- |
+| **Préservation du contexte** | Une phrase coupée en deux sera complète dans un des chunks |
+| **Meilleure recherche**      | Plus de chances de retrouver l'info pertinente             |
+| **Cohérence sémantique**     | Les embeddings captent mieux le sens                       |
+| **Coût minimal**             | ~20% de tokens en plus, mais qualité bien meilleure        |
+
+### 8.7 Modèles d'embedding
 
 | Modèle                   | Fournisseur | Dimension | Coût             |
 | ------------------------ | ----------- | --------- | ---------------- |
@@ -691,68 +815,331 @@ await documentService.addDocuments(chunks); // Chaque chunk a son embedding
 | `all-MiniLM-L6-v2`       | Open source | 384       | Gratuit (local)  |
 | `nomic-embed-text`       | Open source | 768       | Gratuit (local)  |
 
+### 8.8 Le System Prompt est réécrit à chaque message
+
+**Point clé** : Le system prompt n'est pas statique. Il est **enrichi dynamiquement** à chaque nouveau message avec les documents pertinents pour cette question spécifique.
+
+```typescript
+// À CHAQUE message de l'utilisateur :
+
+// 1. Récupérer l'historique (avec le system prompt original)
+const chatHistory = await conversationService.getChatHistory(conversationId);
+// chatHistory[0] = { role: 'system', content: 'Tu es un assistant...' }
+
+// 2. Construire un NOUVEAU system prompt basé sur la question
+const ragContext = await ragService.buildEnrichedPrompt(message);
+// ragContext.enrichedPrompt = 'Tu es un assistant... [Document 1] WiFi = Secret123...'
+
+// 3. REMPLACER le system prompt original
+chatHistory[0].content = ragContext.enrichedPrompt;
+
+// 4. Envoyer à Mistral avec le nouveau contexte
+mistralClient.streamComplete(chatHistory);
+```
+
+**Pourquoi ?** Chaque question peut nécessiter des documents différents :
+
+```
+Message 1 : "Salut !"
+  → RAG cherche docs pour "Salut" → Rien de pertinent
+  → System prompt = basique
+
+Message 2 : "C'est quoi le WiFi ?"
+  → RAG cherche docs pour "WiFi" → Trouve le doc WiFi !
+  → System prompt = enrichi avec infos WiFi
+
+Message 3 : "Et les horaires ?"
+  → RAG cherche docs pour "horaires" → Trouve le doc horaires !
+  → System prompt = enrichi avec infos horaires (différent !)
+```
+
+**Note** : L'enrichissement est fait **à la volée**. Le system prompt original en base de données n'est jamais modifié.
+
+### 8.9 Exemple complet de requête Mistral avec RAG
+
+Voici exactement ce qui est envoyé à l'API Mistral quand le RAG trouve un document :
+
+**Scénario** : L'utilisateur demande "C'est quoi le mot de passe WiFi ?" et un document existe en base avec cette info.
+
+```json
+{
+  "model": "mistral-tiny",
+  "temperature": 0.7,
+  "stream": true,
+  "messages": [
+    {
+      "role": "system",
+      "content": "Tu es un assistant IA amical et serviable. Tu réponds en français de manière concise et utile.\n\nTu as accès aux documents suivants pour t'aider à répondre :\n\n[Document 1]\nLe mot de passe WiFi du bureau est SuperSecret123. Le réseau s'appelle BureauNet.\n\nInstructions :\n- Utilise ces documents pour répondre si pertinent\n- Si l'information n'est pas dans les documents, utilise tes connaissances générales\n- Ne mentionne pas explicitement \"selon les documents\" sauf si l'utilisateur le demande"
+    },
+    {
+      "role": "user",
+      "content": "Salut !"
+    },
+    {
+      "role": "assistant",
+      "content": "Bonjour ! Comment puis-je t'aider ?"
+    },
+    {
+      "role": "user",
+      "content": "C'est quoi le mot de passe WiFi ?"
+    }
+  ]
+}
+```
+
+**Points importants** :
+
+- Le contenu du document est **littéralement copié** dans le system prompt
+- L'**historique complet** de conversation est envoyé
+- Le RAG est basé sur la **dernière question** uniquement
+- Mistral "voit" les documents comme du texte normal dans le system prompt
+
+**Réponse de Mistral** :
+
+```json
+{
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "Le mot de passe WiFi est SuperSecret123 et le réseau s'appelle BureauNet."
+      }
+    }
+  ]
+}
+```
+
+### 8.9 Coût du RAG
+
+Le RAG consomme des tokens supplémentaires car les documents sont envoyés à chaque requête :
+
+| Composant                   | Tokens (exemple) |
+| --------------------------- | ---------------- |
+| System prompt de base       | ~50              |
+| Documents injectés (3 docs) | ~300-500         |
+| Historique conversation     | ~200             |
+| Question utilisateur        | ~20              |
+| **Total entrée**            | **~600-800**     |
+| Réponse                     | ~100             |
+
+**Coût approximatif** : ~0.001€ par message avec RAG (mistral-tiny)
+
 ---
 
-## 9. Architecture MVC
+## 9. Architecture Clean Architecture
 
-### 9.1 Structure des fichiers
+Le projet utilise une **Clean Architecture** (aussi appelée Hexagonal Architecture ou Ports & Adapters) pour une meilleure séparation des responsabilités et testabilité.
+
+### 9.1 Les couches
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        INFRASTRUCTURE                            │
+│  (HTTP, Base de données, APIs externes)                         │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │                        APPLICATION                         │  │
+│  │  (Use Cases, Services, Ports)                             │  │
+│  │  ┌─────────────────────────────────────────────────────┐  │  │
+│  │  │                      DOMAIN                          │  │  │
+│  │  │  (Entités, Value Objects, Règles métier)            │  │  │
+│  │  └─────────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Règle de dépendance** : Les couches internes ne connaissent pas les couches externes.
+
+### 9.2 Structure des fichiers
 
 ```
 src/
-├── routes/
-│   ├── index.ts              # Agrège toutes les routes
-│   ├── conversationRoutes.ts # Routes /conversations, /chat
-│   └── documentRoutes.ts     # Routes /documents (RAG)
-├── controllers/
-│   ├── conversationController.ts  # Logique HTTP chat
-│   └── documentController.ts      # Logique HTTP documents
-├── services/
-│   ├── mistral/
-│   │   ├── MistralService.ts # Logique IA (chat + embeddings)
-│   │   ├── types.ts          # Interfaces
-│   │   ├── errors.ts         # Erreurs custom
-│   │   └── index.ts          # Exports
+├── domain/                          # 🟢 COUCHE DOMAINE (cœur métier)
 │   ├── conversation/
-│   │   └── ConversationService.ts  # Logique DB conversations
-│   └── document/
-│       └── DocumentService.ts      # Logique DB documents (RAG)
-├── utils/
-│   ├── retry.ts              # Exponential backoff
-│   └── tokenizer.ts          # Sliding window
-└── server.ts                 # Point d'entrée
+│   │   ├── entities/
+│   │   │   ├── Conversation.ts      # Entité Conversation
+│   │   │   └── Message.ts           # Entité Message
+│   │   ├── errors/
+│   │   │   └── ConversationErrors.ts
+│   │   ├── repositories/
+│   │   │   └── IConversationRepository.ts  # Interface (port)
+│   │   └── valueObjects/
+│   │       └── MessageRole.ts
+│   ├── document/
+│   │   ├── entities/
+│   │   │   └── Document.ts
+│   │   ├── repositories/
+│   │   │   └── IDocumentRepository.ts
+│   │   └── valueObjects/
+│   │       └── Embedding.ts
+│   └── shared/
+│       ├── errors/
+│       │   └── DomainError.ts
+│       └── valueObjects/
+│           └── UUID.ts
+│
+├── application/                     # 🔵 COUCHE APPLICATION (orchestration)
+│   ├── ports/
+│   │   ├── in/                      # Ports d'entrée (ce que l'app expose)
+│   │   │   ├── conversation.ts      # Interfaces des use cases
+│   │   │   └── document.ts
+│   │   └── out/                     # Ports de sortie (ce dont l'app a besoin)
+│   │       ├── IConversationService.ts
+│   │       ├── IDocumentService.ts
+│   │       ├── IMistralClient.ts
+│   │       └── IRAGService.ts
+│   ├── services/
+│   │   ├── conversation/
+│   │   │   └── ConversationService.ts
+│   │   ├── document/
+│   │   │   └── DocumentService.ts
+│   │   └── rag/
+│   │       └── RAGService.ts        # Service RAG
+│   └── usecases/
+│       ├── conversation/
+│       │   ├── CreateConversationUseCase.ts
+│       │   ├── SendMessageUseCase.ts
+│       │   └── StreamMessageUseCase.ts  # Use case principal du chat
+│       └── document/
+│           ├── AddDocumentUseCase.ts
+│           ├── SearchDocumentsUseCase.ts
+│           └── ...
+│
+├── infrastructure/                  # 🔴 COUCHE INFRASTRUCTURE (détails techniques)
+│   ├── http/
+│   │   ├── controllers/
+│   │   │   ├── conversationController.ts
+│   │   │   └── documentController.ts
+│   │   ├── routes/
+│   │   │   ├── conversationRoutes.ts
+│   │   │   └── documentRoutes.ts
+│   │   └── middlewares/
+│   │       └── errorHandler.ts
+│   ├── persistence/
+│   │   ├── ConversationRepository.ts  # Implémente IConversationRepository
+│   │   └── DocumentRepository.ts      # Implémente IDocumentRepository
+│   ├── external/
+│   │   └── mistral/
+│   │       ├── MistralClient.ts       # Implémente IMistralClient
+│   │       ├── tokenizer.ts
+│   │       └── errors.ts
+│   ├── common/
+│   │   └── retry.ts                   # Exponential backoff
+│   └── config/
+│       └── prisma.ts
+│
+└── server.ts                        # Point d'entrée
 ```
 
-### 9.2 Responsabilités
+### 9.3 Responsabilités par couche
 
-| Couche      | Responsabilité                            |
-| ----------- | ----------------------------------------- |
-| Routes      | Définir les endpoints                     |
-| Controllers | Gérer HTTP (req/res), valider, orchestrer |
-| Services    | Logique métier (IA, DB, Embeddings)       |
-| Utils       | Fonctions réutilisables                   |
+| Couche             | Contient                                  | Responsabilité                                 |
+| ------------------ | ----------------------------------------- | ---------------------------------------------- |
+| **Domain**         | Entities, Value Objects, Interfaces repos | Règles métier pures, aucune dépendance externe |
+| **Application**    | Use Cases, Services, Ports                | Orchestrer les cas d'utilisation               |
+| **Infrastructure** | Controllers, Repositories, Clients API    | Implémenter les détails techniques             |
 
-### 9.3 Flux d'une requête
+### 9.4 Les Ports (Interfaces)
+
+Les **ports** définissent des contrats que l'infrastructure doit respecter :
+
+```typescript
+// application/ports/out/IMistralClient.ts
+export interface IMistralClient {
+  chat(message: string, options?: ChatOptions): Promise<string | null>;
+  streamComplete(messages: ChatMessage[]): AsyncIterable<string>;
+  generateEmbedding(text: string): Promise<number[]>;
+}
+
+// infrastructure/external/mistral/MistralClient.ts
+export class MistralClient implements IMistralClient {
+  // Implémentation concrète avec le SDK Mistral
+}
+```
+
+**Avantage** : On peut remplacer `MistralClient` par un mock pour les tests !
+
+### 9.5 Les Use Cases
+
+Un **Use Case** représente une action métier unique :
+
+```typescript
+// application/usecases/conversation/StreamMessageUseCase.ts
+
+export class StreamMessageUseCase {
+  constructor(
+    private conversationService: IConversationService,
+    private mistralClient: IMistralClient,
+    private ragService: IRAGService,  // Injection de dépendances
+  ) {}
+
+  async *execute(input: StreamMessageInput): AsyncGenerator<StreamMessageChunk> {
+    // 1. Sauvegarder le message
+    await this.conversationService.addMessage(...);
+
+    // 2. Récupérer l'historique
+    const chatHistory = await this.conversationService.getChatHistory(...);
+
+    // 3. Enrichir avec RAG
+    const ragContext = await this.ragService.buildEnrichedPrompt(message);
+    chatHistory[0].content = ragContext.enrichedPrompt;
+
+    // 4. Streamer la réponse
+    for await (const chunk of this.mistralClient.streamComplete(chatHistory)) {
+      yield { chunk };
+    }
+  }
+}
+```
+
+### 9.6 Flux d'une requête (Clean Architecture)
 
 ```
-POST /api/chat
+POST /api/chat/stream
      │
      ▼
-[conversationRoutes.ts]
-     │ router.post('/chat', chat)
+┌─────────────────────────────────────────────────────────────────┐
+│ INFRASTRUCTURE: conversationController.ts                       │
+│   → Valide la requête HTTP                                      │
+│   → Appelle le Use Case                                         │
+└─────────────────────────────────────────────────────────────────┘
+     │
      ▼
-[conversationController.ts]
-     │ - Valide les inputs
-     │ - Appelle ConversationService.addMessage()
-     │ - Appelle MistralService.streamComplete()
-     │ - Renvoie la réponse SSE
+┌─────────────────────────────────────────────────────────────────┐
+│ APPLICATION: StreamMessageUseCase.ts                            │
+│   → Orchestre la logique métier                                 │
+│   → Utilise les Services via leurs interfaces (ports)          │
+│   │                                                             │
+│   ├── ConversationService.addMessage()                          │
+│   ├── ConversationService.getChatHistory()                      │
+│   ├── RAGService.buildEnrichedPrompt()  ◄── Recherche docs     │
+│   └── MistralClient.streamComplete()                            │
+└─────────────────────────────────────────────────────────────────┘
+     │
      ▼
-[MistralService.ts]
-     │ - Applique sliding window
-     │ - Appelle l'API avec retry
-     │ - Yield les chunks
+┌─────────────────────────────────────────────────────────────────┐
+│ INFRASTRUCTURE: Implémentations concrètes                       │
+│   │                                                             │
+│   ├── ConversationRepository (Prisma + PostgreSQL)              │
+│   ├── DocumentRepository (pgvector)                             │
+│   └── MistralClient (SDK Mistral)                               │
+└─────────────────────────────────────────────────────────────────┘
+     │
      ▼
-[Mistral API]
+┌─────────────────────────────────────────────────────────────────┐
+│ EXTERNAL: APIs et Base de données                               │
+│   ├── Mistral AI API                                            │
+│   └── PostgreSQL + pgvector                                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
+
+### 9.7 Avantages de cette architecture
+
+| Avantage           | Description                                   |
+| ------------------ | --------------------------------------------- |
+| **Testabilité**    | On peut mocker les dépendances externes       |
+| **Maintenabilité** | Chaque couche a une responsabilité claire     |
+| **Flexibilité**    | Changer de DB ou d'API sans toucher au métier |
+| **Indépendance**   | Le domaine ne dépend de rien                  |
 
 ---
 
@@ -805,14 +1192,18 @@ async function sendMessage(content) {
 
 ### 11.1 Patterns
 
-| Pattern                  | Où                   | Pourquoi                               |
-| ------------------------ | -------------------- | -------------------------------------- |
-| **Singleton**            | MistralService       | Une seule instance, config partagée    |
-| **Dependency Injection** | ConversationService  | Testabilité (injecter mock Prisma)     |
-| **AsyncIterator**        | streamComplete()     | Traiter les données au fur et à mesure |
-| **Exponential Backoff**  | withRetry()          | Résilience aux erreurs API             |
-| **Sliding Window**       | applySlidingWindow() | Gérer les limites de contexte          |
-| **RAG**                  | DocumentService      | Enrichir le LLM avec des docs privés   |
+| Pattern                  | Où                           | Pourquoi                               |
+| ------------------------ | ---------------------------- | -------------------------------------- |
+| **Clean Architecture**   | Structure du projet          | Séparation des responsabilités         |
+| **Ports & Adapters**     | Interfaces + Implémentations | Découplage, testabilité                |
+| **Use Case**             | StreamMessageUseCase         | Une action métier = une classe         |
+| **Dependency Injection** | Constructeurs Use Cases      | Injecter les dépendances (mocks)       |
+| **Repository**           | ConversationRepository       | Abstraction de la persistance          |
+| **Singleton**            | getMistralClient()           | Une seule instance, config partagée    |
+| **AsyncIterator**        | streamComplete()             | Traiter les données au fur et à mesure |
+| **Exponential Backoff**  | withRetry()                  | Résilience aux erreurs API             |
+| **Sliding Window**       | tokenizer.ts                 | Gérer les limites de contexte          |
+| **RAG**                  | RAGService                   | Enrichir le LLM avec des docs privés   |
 
 ### 11.2 Bonnes pratiques
 
@@ -847,6 +1238,9 @@ pnpm db:push
 # Reset la DB
 pnpm db:push --force-reset
 
+# Migrations SQL personnalisées (pour pgvector)
+docker compose exec app sh -c "cd /app/src && pnpm migrate"
+
 # Logs Docker
 docker compose logs app --tail=20
 docker compose logs frontend --tail=20
@@ -854,17 +1248,108 @@ docker compose logs frontend --tail=20
 # Activer pgvector
 docker compose exec postgres psql -U postgres -d ia_chat -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-# Voir les documents indexés
-docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT id, LEFT(content, 50) FROM documents;"
+# Voir les documents indexés (avec tracking des chunks)
+docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT id, LEFT(content, 50), source_id, chunk_index FROM documents;"
+
+# Voir les migrations appliquées
+docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT * FROM _migrations;"
+```
+
+### 11.5 Système de migrations SQL
+
+Prisma ne supporte pas le type `vector` de pgvector, donc on utilise un système de migrations SQL personnalisé :
+
+```
+src/migrations/
+├── 001_create_documents_table.sql   # Table de base
+├── 002_add_chunk_tracking.sql       # Colonnes source_id, chunk_index
+└── migrate.ts                       # Script d'exécution
+```
+
+**Structure de la table `_migrations`** :
+
+| id  | name                           | applied_at |
+| --- | ------------------------------ | ---------- |
+| 1   | 001_create_documents_table.sql | 2024-12-21 |
+| 2   | 002_add_chunk_tracking.sql     | 2024-12-21 |
+
+**Créer une nouvelle migration** :
+
+```sql
+-- src/migrations/003_add_my_feature.sql
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS my_column TEXT;
+```
+
+Puis exécuter : `docker compose exec app sh -c "cd /app/src && pnpm migrate"`
+
+### 11.6 Fixtures et Seeding
+
+Pour tester l'application avec des données réalistes :
+
+```bash
+# Voir ce qui serait inséré (sans exécuter)
+docker compose exec app sh -c "cd /app/src && pnpm seed:dry"
+
+# Insérer les fixtures (conserve les données existantes)
+docker compose exec app sh -c "cd /app/src && pnpm seed"
+
+# Nettoyer et réinsérer (reset complet)
+docker compose exec app sh -c "cd /app/src && pnpm seed:clean"
+```
+
+**Structure des fixtures** :
+
+```
+src/fixtures/
+├── documents.ts   # Données de test (FAQ, procédures, docs techniques)
+├── seed.ts        # Script d'exécution
+└── index.ts       # Exports
+```
+
+**Types de documents inclus** :
+
+| Catégorie       | Exemples                  | Chunking       |
+| --------------- | ------------------------- | -------------- |
+| Infos pratiques | WiFi, horaires, contacts  | Non            |
+| Procédures      | Congés, notes de frais    | Non            |
+| Technique       | Docker, Architecture, API | Oui (3 chunks) |
+| FAQ             | Questions fréquentes      | Non            |
+| RH              | Télétravail               | Non            |
+
+**Exemple de fixture** :
+
+```typescript
+// src/fixtures/documents.ts
+export const documentFixtures: DocumentFixture[] = [
+  {
+    title: 'WiFi et Réseau',
+    content: `Le mot de passe WiFi est SecretWifi2024!...`,
+    useChunking: false, // Document court → pas de chunking
+  },
+  {
+    title: 'Guide Docker',
+    content: `Guide complet de 800 mots...`,
+    useChunking: true, // Document long → chunking
+    chunkSize: 400,
+    overlap: 80,
+  },
+];
 ```
 
 ---
 
 ## 📝 Checklist de révision
 
-### Architecture & Patterns
+### Clean Architecture
 
-- [ ] Je sais expliquer l'architecture MVC
+- [ ] Je connais les 3 couches : Domain, Application, Infrastructure
+- [ ] Je comprends la règle de dépendance (vers l'intérieur)
+- [ ] Je sais ce qu'est un Port (interface) et pourquoi c'est utile
+- [ ] Je sais ce qu'est un Use Case et son rôle
+- [ ] Je comprends l'injection de dépendances
+
+### Patterns
+
 - [ ] Je comprends le pattern Singleton
 - [ ] Je sais implémenter un retry avec exponential backoff
 - [ ] Je comprends pourquoi le jitter est important
@@ -881,6 +1366,7 @@ docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT id, LEFT(con
 - [ ] Je sais créer un schéma Prisma
 - [ ] Je comprends les transactions et niveaux d'isolation
 - [ ] Je sais utiliser `$queryRawUnsafe` avec des paramètres positionnels
+- [ ] Je sais créer des migrations SQL pour les types non supportés par Prisma (vector)
 
 ### Embeddings & RAG
 
@@ -890,8 +1376,12 @@ docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT id, LEFT(con
 - [ ] Je sais stocker des vecteurs avec pgvector
 - [ ] Je peux implémenter une recherche sémantique
 - [ ] Je comprends le concept de RAG et son utilité
+- [ ] Je sais que le system prompt est réécrit à chaque message avec le contexte RAG
 - [ ] Je sais pourquoi le chunking est important pour les longs documents
+- [ ] Je comprends le chunking avec overlap et pourquoi c'est mieux que sans
+- [ ] Je sais calculer le step : `step = chunkSize - overlap`
+- [ ] Je connais les algorithmes de recherche vectorielle (Force brute, IVFFlat, HNSW)
 
 ---
 
-_Document mis à jour le 17/12/2024_
+_Document mis à jour le 21/12/2024_

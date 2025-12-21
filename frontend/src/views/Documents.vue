@@ -19,6 +19,51 @@
             rows="6"
             :disabled="isAdding"
           ></textarea>
+
+          <!-- Mode chunking avec overlap -->
+          <div class="chunking-options">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                v-model="useChunking"
+                :disabled="isAdding"
+              />
+              <span class="checkbox-text">
+                ✂️ Découper automatiquement (chunking avec overlap)
+              </span>
+            </label>
+
+            <div v-if="useChunking" class="chunking-params">
+              <div class="param-group">
+                <label for="chunkSize">Taille du chunk :</label>
+                <input
+                  id="chunkSize"
+                  type="number"
+                  v-model.number="chunkSize"
+                  min="50"
+                  max="2000"
+                  :disabled="isAdding"
+                />
+                <span class="param-hint">caractères</span>
+              </div>
+              <div class="param-group">
+                <label for="overlap">Chevauchement :</label>
+                <input
+                  id="overlap"
+                  type="number"
+                  v-model.number="overlap"
+                  min="0"
+                  :max="chunkSize - 1"
+                  :disabled="isAdding"
+                />
+                <span class="param-hint">caractères</span>
+              </div>
+              <p class="chunking-estimate" v-if="newContent.length > 0">
+                📊 Estimation : ~{{ estimatedChunks }} chunk(s)
+              </p>
+            </div>
+          </div>
+
           <div class="form-actions">
             <span class="char-count">{{ newContent.length }} caractères</span>
             <button
@@ -27,6 +72,7 @@
               class="btn-add"
             >
               <span v-if="isAdding">⏳ Indexation...</span>
+              <span v-else-if="useChunking">✂️ Découper & Ajouter</span>
               <span v-else>➕ Ajouter le document</span>
             </button>
           </div>
@@ -126,7 +172,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 
 const API_URL = 'http://localhost:3000';
 
@@ -152,10 +198,22 @@ const newContent = ref('');
 const addMessage = ref('');
 const addMessageType = ref<'success' | 'error'>('success');
 
+// Chunking options
+const useChunking = ref(false);
+const chunkSize = ref(500);
+const overlap = ref(100);
+
 const searchQuery = ref('');
 const searchResults = ref<SearchResult[]>([]);
 const searchError = ref('');
 const hasSearched = ref(false);
+
+// Computed
+const estimatedChunks = computed(() => {
+  if (newContent.value.length <= chunkSize.value) return 1;
+  const step = chunkSize.value - overlap.value;
+  return Math.ceil((newContent.value.length - overlap.value) / step);
+});
 
 // Helpers
 function truncate(text: string, maxLength: number): string {
@@ -185,18 +243,45 @@ async function addDocument() {
   addMessage.value = '';
 
   try {
-    const response = await fetch(`${API_URL}/api/documents`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: newContent.value }),
-    });
+    let response: Response;
+    let successMessage: string;
 
-    if (!response.ok) {
-      throw new Error('Failed to add document');
+    if (useChunking.value) {
+      // Utiliser l'endpoint avec chunking
+      response = await fetch(`${API_URL}/api/documents/chunked`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: newContent.value,
+          chunkSize: chunkSize.value,
+          overlap: overlap.value,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to add document with chunking');
+      }
+
+      const data = await response.json();
+      successMessage = `✅ Document découpé en ${data.totalChunks} chunks avec succès !`;
+    } else {
+      // Utiliser l'endpoint standard
+      response = await fetch(`${API_URL}/api/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: newContent.value }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to add document');
+      }
+
+      const data = await response.json();
+      successMessage = `✅ Document #${data.document.id} ajouté avec succès !`;
     }
 
-    const data = await response.json();
-    addMessage.value = `✅ Document #${data.document.id} ajouté avec succès !`;
+    addMessage.value = successMessage;
     addMessageType.value = 'success';
     newContent.value = '';
 
@@ -204,7 +289,9 @@ async function addDocument() {
     await loadDocuments();
   } catch (error) {
     console.error('Error adding document:', error);
-    addMessage.value = "❌ Erreur lors de l'ajout du document";
+    addMessage.value = error instanceof Error
+      ? `❌ ${error.message}`
+      : "❌ Erreur lors de l'ajout du document";
     addMessageType.value = 'error';
   } finally {
     isAdding.value = false;
@@ -370,6 +457,85 @@ h3 {
 .btn-add:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Chunking Options */
+.chunking-options {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 10px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
+.checkbox-text {
+  color: #c0c0d0;
+  font-size: 0.95rem;
+}
+
+.chunking-params {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(99, 102, 241, 0.15);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+}
+
+.param-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.param-group label {
+  color: #8b8ba7;
+  font-size: 0.9rem;
+}
+
+.param-group input[type="number"] {
+  width: 80px;
+  padding: 8px 10px;
+  background: #16162a;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.param-group input[type="number"]:focus {
+  outline: none;
+  border-color: #6366f1;
+}
+
+.param-hint {
+  color: #5a5a7a;
+  font-size: 0.8rem;
+}
+
+.chunking-estimate {
+  color: #22c55e;
+  font-size: 0.9rem;
+  margin: 0;
+  padding: 6px 12px;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 6px;
 }
 
 .message {

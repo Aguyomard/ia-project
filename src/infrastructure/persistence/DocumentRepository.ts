@@ -40,21 +40,44 @@ export class DocumentRepository implements IDocumentRepository {
     try {
       const embeddingStr = `[${input.embedding.join(',')}]`;
 
-      const result = await this.prisma.$queryRawUnsafe<
-        { id: number; content: string }[]
-      >(
-        `INSERT INTO documents (content, embedding)
-         VALUES ($1, $2::vector)
-         RETURNING id, content`,
-        input.content,
-        embeddingStr
-      );
+      // Construire la requête selon les champs présents
+      const hasSourceId = input.sourceId !== undefined;
+      const hasChunkIndex = input.chunkIndex !== undefined;
+
+      let result: {
+        id: number;
+        content: string;
+        source_id: number | null;
+        chunk_index: number | null;
+      }[];
+
+      if (hasSourceId && hasChunkIndex) {
+        result = await this.prisma.$queryRawUnsafe(
+          `INSERT INTO documents (content, embedding, source_id, chunk_index)
+           VALUES ($1, $2::vector, $3, $4)
+           RETURNING id, content, source_id, chunk_index`,
+          input.content,
+          embeddingStr,
+          input.sourceId,
+          input.chunkIndex
+        );
+      } else {
+        result = await this.prisma.$queryRawUnsafe(
+          `INSERT INTO documents (content, embedding)
+           VALUES ($1, $2::vector)
+           RETURNING id, content, source_id, chunk_index`,
+          input.content,
+          embeddingStr
+        );
+      }
 
       const doc = result[0];
       return {
         id: Number(doc.id),
         content: doc.content,
         embedding: input.embedding,
+        sourceId: doc.source_id ? Number(doc.source_id) : null,
+        chunkIndex: doc.chunk_index,
       };
     } catch (error) {
       console.error('[DocumentRepository] Insert error:', error);
@@ -71,8 +94,17 @@ export class DocumentRepository implements IDocumentRepository {
   public async findById(id: number): Promise<Document | null> {
     try {
       const result = await this.prisma.$queryRawUnsafe<
-        { id: number | bigint; content: string; embedding: string | null }[]
-      >('SELECT id, content, embedding::text FROM documents WHERE id = $1', id);
+        {
+          id: number | bigint;
+          content: string;
+          source_id: number | null;
+          chunk_index: number | null;
+          created_at: Date | null;
+        }[]
+      >(
+        'SELECT id, content, source_id, chunk_index, created_at FROM documents WHERE id = $1',
+        id
+      );
 
       if (result.length === 0) {
         return null;
@@ -83,6 +115,9 @@ export class DocumentRepository implements IDocumentRepository {
         id: Number(doc.id),
         content: doc.content,
         embedding: null,
+        sourceId: doc.source_id ? Number(doc.source_id) : null,
+        chunkIndex: doc.chunk_index,
+        createdAt: doc.created_at ?? undefined,
       };
     } catch (error) {
       throw new DatabaseError('Failed to get document', error);
@@ -178,6 +213,61 @@ export class DocumentRepository implements IDocumentRepository {
       throw new DatabaseError('Failed to search documents', error);
     }
   }
+
+  public async findChunksBySourceId(sourceId: number): Promise<Document[]> {
+    try {
+      const results = await this.prisma.$queryRawUnsafe<
+        {
+          id: number | bigint;
+          content: string;
+          source_id: number;
+          chunk_index: number;
+        }[]
+      >(
+        `SELECT id, content, source_id, chunk_index
+         FROM documents
+         WHERE source_id = $1
+         ORDER BY chunk_index`,
+        sourceId
+      );
+
+      return results.map((r) => ({
+        id: Number(r.id),
+        content: r.content,
+        embedding: null,
+        sourceId: Number(r.source_id),
+        chunkIndex: r.chunk_index,
+      }));
+    } catch (error) {
+      throw new DatabaseError('Failed to get chunks', error);
+    }
+  }
+
+  public async createSource(content: string): Promise<Document> {
+    try {
+      // Crée un document source sans embedding (juste pour garder le contenu original)
+      const result = await this.prisma.$queryRawUnsafe<
+        { id: number; content: string; created_at: Date }[]
+      >(
+        `INSERT INTO documents (content, embedding)
+         VALUES ($1, NULL)
+         RETURNING id, content, created_at`,
+        content
+      );
+
+      const doc = result[0];
+      return {
+        id: Number(doc.id),
+        content: doc.content,
+        embedding: null,
+        sourceId: null,
+        chunkIndex: null,
+        createdAt: doc.created_at,
+      };
+    } catch (error) {
+      throw new DatabaseError('Failed to create source document', error);
+    }
+  }
 }
 
 // Singleton
@@ -195,4 +285,3 @@ export function getDocumentRepository(
 export function resetDocumentRepository(): void {
   instance = null;
 }
-

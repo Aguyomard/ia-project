@@ -18,7 +18,13 @@
     "prisma:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema=prisma/schema.prisma",
-    "db:push": "prisma db push --schema=prisma/schema.prisma"
+    "db:push": "prisma db push --schema=prisma/schema.prisma",
+    "migrate": "tsx migrations/migrate.ts",
+    "migrate:status": "docker compose exec postgres psql -U postgres -d ia_chat -c 'SELECT * FROM _migrations ORDER BY id;'",
+    "seed": "tsx fixtures/seed.ts",
+    "seed:clean": "tsx fixtures/seed.ts --clean",
+    "seed:dry": "tsx fixtures/seed.ts --dry-run",
+    "test:rag": "tsx fixtures/test-rag.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

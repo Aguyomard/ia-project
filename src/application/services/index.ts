@@ -17,3 +17,13 @@ export {
   getConversationService,
   resetConversationService,
 } from './conversation/index.js';
+
+export {
+  ChunkingService,
+  getChunkingService,
+  resetChunkingService,
+  type ChunkingOptions,
+  type Chunk,
+  type ChunkingResult,
+  DEFAULT_CHUNKING_OPTIONS,
+} from './chunking/index.js';

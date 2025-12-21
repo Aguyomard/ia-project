@@ -6,6 +6,10 @@ import type { Document, DocumentWithDistance } from '../entities/Document.js';
 export interface CreateDocumentInput {
   content: string;
   embedding?: number[];
+  /** ID du document parent si c'est un chunk */
+  sourceId?: number;
+  /** Index du chunk dans le document original */
+  chunkIndex?: number;
 }
 
 /**
@@ -16,6 +20,8 @@ export interface SearchOptions {
   limit?: number;
   /** Distance maximale pour filtrer les résultats */
   maxDistance?: number;
+  /** Exclure les documents sources (qui n'ont pas d'embedding) */
+  excludeSources?: boolean;
 }
 
 /**
@@ -49,7 +55,7 @@ export interface IDocumentRepository {
   count(): Promise<number>;
 
   /**
-   * Supprime un document
+   * Supprime un document (et ses chunks si c'est un document source)
    */
   delete(id: number): Promise<boolean>;
 
@@ -60,5 +66,31 @@ export interface IDocumentRepository {
     queryEmbedding: number[],
     options?: SearchOptions
   ): Promise<DocumentWithDistance[]>;
+
+  /**
+   * Récupère les chunks d'un document source
+   */
+  findChunksBySourceId(sourceId: number): Promise<Document[]>;
+
+  /**
+   * Crée un document source (sans embedding) et retourne son ID
+   */
+  createSource(content: string): Promise<Document>;
+}
+
+
+    queryEmbedding: number[],
+    options?: SearchOptions
+  ): Promise<DocumentWithDistance[]>;
+
+  /**
+   * Récupère les chunks d'un document source
+   */
+  findChunksBySourceId(sourceId: number): Promise<Document[]>;
+
+  /**
+   * Crée un document source (sans embedding) et retourne son ID
+   */
+  createSource(content: string): Promise<Document>;
 }
 
