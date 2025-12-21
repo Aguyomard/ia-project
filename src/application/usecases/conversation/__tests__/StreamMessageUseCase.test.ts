@@ -68,6 +68,7 @@ describe('StreamMessageUseCase', () => {
         enrichedPrompt: 'Enriched system prompt',
         documentsFound: 1,
         distances: [0.1],
+        sources: [{ title: 'Test Doc', similarity: 95, distance: 0.1 }],
       }),
       getBasePrompt: vi.fn().mockReturnValue('Base prompt'),
     };
@@ -175,6 +176,57 @@ describe('StreamMessageUseCase', () => {
     }
 
     expect(mockConversationService.generateTitle).toHaveBeenCalledWith('conv-123');
+  });
+
+  it('should return sources when RAG is enabled (default)', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question',
+    };
+
+    let finalChunk;
+    for await (const chunk of useCase.execute(input)) {
+      if (chunk.done) {
+        finalChunk = chunk;
+      }
+    }
+
+    expect(finalChunk?.sources).toHaveLength(1);
+    expect(finalChunk?.sources?.[0].title).toBe('Test Doc');
+    expect(finalChunk?.sources?.[0].similarity).toBe(95);
+  });
+
+  it('should skip RAG when useRAG is false', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question',
+      useRAG: false,
+    };
+
+    let finalChunk;
+    for await (const chunk of useCase.execute(input)) {
+      if (chunk.done) {
+        finalChunk = chunk;
+      }
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).not.toHaveBeenCalled();
+    expect(finalChunk?.sources).toHaveLength(0);
+  });
+
+  it('should use RAG when useRAG is true', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question',
+      useRAG: true,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith('Question');
   });
 });
 

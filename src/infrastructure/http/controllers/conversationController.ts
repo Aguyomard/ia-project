@@ -6,7 +6,10 @@ import {
   streamMessageUseCase,
 } from '../../../application/usecases/index.js';
 
-export async function createConversation(req: Request, res: Response): Promise<void> {
+export async function createConversation(
+  req: Request,
+  res: Response
+): Promise<void> {
   try {
     const { userId } = req.body;
     const result = await createConversationUseCase.execute({ userId });
@@ -17,11 +20,16 @@ export async function createConversation(req: Request, res: Response): Promise<v
   }
 }
 
-export async function listConversations(req: Request, res: Response): Promise<void> {
+export async function listConversations(
+  req: Request,
+  res: Response
+): Promise<void> {
   try {
     const { userId } = req.query;
     const conversationService = getConversationService();
-    const conversations = await conversationService.listConversations(userId as string | undefined);
+    const conversations = await conversationService.listConversations(
+      userId as string | undefined
+    );
     res.json({ conversations });
   } catch (error) {
     console.error('Error listing conversations:', error);
@@ -56,7 +64,10 @@ export async function chat(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const result = await sendMessageUseCase.execute({ message, conversationId });
+    const result = await sendMessageUseCase.execute({
+      message,
+      conversationId,
+    });
     res.json(result);
   } catch (error) {
     console.error('Chat error:', error);
@@ -69,7 +80,7 @@ export async function chat(req: Request, res: Response): Promise<void> {
 
 export async function chatStream(req: Request, res: Response): Promise<void> {
   try {
-    const { message, conversationId } = req.body;
+    const { message, conversationId, useRAG = true } = req.body;
 
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Message is required' });
@@ -87,7 +98,11 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.flushHeaders();
 
-    for await (const event of streamMessageUseCase.execute({ message, conversationId })) {
+    for await (const event of streamMessageUseCase.execute({
+      message,
+      conversationId,
+      useRAG,
+    })) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
 

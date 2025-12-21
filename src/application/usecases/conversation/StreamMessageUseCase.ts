@@ -25,7 +25,7 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
   async *execute(
     input: StreamMessageInput
   ): AsyncGenerator<StreamMessageChunk> {
-    const { conversationId, message } = input;
+    const { conversationId, message, useRAG = true } = input;
     const { conversationService, mistralClient, ragService } = this.deps;
 
     await conversationService.addMessage({
@@ -37,9 +37,17 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
     const chatHistory =
       await conversationService.getChatHistory(conversationId);
 
-    const ragContext = await ragService.buildEnrichedPrompt(message);
-    if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
-      chatHistory[0].content = ragContext.enrichedPrompt;
+    // Appliquer le RAG uniquement si activé
+    let sources: StreamMessageSource[] = [];
+    if (useRAG) {
+      const ragContext = await ragService.buildEnrichedPrompt(message);
+      if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
+        chatHistory[0].content = ragContext.enrichedPrompt;
+      }
+      sources = ragContext.sources.map((s) => ({
+        title: s.title,
+        similarity: s.similarity,
+      }));
     }
 
     let fullResponse = '';
@@ -59,12 +67,6 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
     if (messages.filter((m) => m.role === 'user').length === 1) {
       await conversationService.generateTitle(conversationId);
     }
-
-    // Mapper les sources RAG pour le frontend
-    const sources: StreamMessageSource[] = ragContext.sources.map((s) => ({
-      title: s.title,
-      similarity: s.similarity,
-    }));
 
     yield { done: true, fullResponse, sources };
   }

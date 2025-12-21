@@ -20,11 +20,18 @@
         <!-- Loading désactivé car on utilise le streaming -->
       </div>
 
-      <ChatInput
-        placeholder="Écris ton message..."
-        :disabled="isLoading"
-        @send="sendMessage"
-      />
+      <div class="chat-footer">
+        <label class="rag-toggle">
+          <input type="checkbox" v-model="useRAG" />
+          <span class="toggle-icon">📚</span>
+          <span class="toggle-label">Base de connaissances</span>
+        </label>
+        <ChatInput
+          placeholder="Écris ton message..."
+          :disabled="isLoading"
+          @send="sendMessage"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -56,6 +63,7 @@ const messages = ref<Message[]>([]);
 const isLoading = ref(false);
 const conversationId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
+const useRAG = ref(true);
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('fr-FR', {
@@ -127,6 +135,7 @@ async function sendMessage(content: string) {
       body: JSON.stringify({
         message: content,
         conversationId: conversationId.value,
+        useRAG: useRAG.value,
       }),
     });
 
@@ -240,6 +249,59 @@ onMounted(() => {
 .chat-messages::-webkit-scrollbar-thumb {
   background: #3a3a5c;
   border-radius: 3px;
+}
+
+.chat-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  background: #1a1a2e;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.rag-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.rag-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.rag-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #667eea;
+  cursor: pointer;
+}
+
+.toggle-icon {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.rag-toggle:has(input:checked) .toggle-icon {
+  opacity: 1;
+}
+
+.rag-toggle:has(input:not(:checked)) .toggle-icon {
+  opacity: 0.4;
+}
+
+.toggle-label {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.rag-toggle:has(input:checked) .toggle-label {
+  color: #a5b4fc;
 }
 
 @media (max-width: 640px) {

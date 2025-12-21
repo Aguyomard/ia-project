@@ -29,6 +29,8 @@ export interface ISendMessageUseCase {
 export interface StreamMessageInput {
   conversationId: string;
   message: string;
+  /** Utiliser le RAG pour enrichir le contexte (défaut: true) */
+  useRAG?: boolean;
 }
 
 export interface StreamMessageSource {
