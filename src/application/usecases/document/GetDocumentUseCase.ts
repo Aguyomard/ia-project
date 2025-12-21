@@ -12,7 +12,7 @@ export class GetDocumentUseCase implements IGetDocumentUseCase {
   constructor(private readonly documentService: IDocumentService) {}
 
   async execute(input: GetDocumentInput): Promise<GetDocumentOutput> {
-    const document = await this.documentService.getDocument(input.id);
+    const document = await this.documentService.getDocumentWithChunks(input.id);
     return { document };
   }
 }

@@ -1,346 +1,98 @@
-# 🧪 Questions de test pour le RAG
+# Questions de test RAG
 
-Ce document liste des questions à poser au chatbot pour vérifier que le RAG fonctionne correctement.
+Utilisez ces questions pour vérifier que le système RAG fonctionne correctement.
 
-## Comment tester
+## WiFi
 
-1. Lancer l'application : `docker compose up`
-2. Aller sur http://localhost:5173
-3. Créer une nouvelle conversation
-4. Poser les questions ci-dessous
-5. Vérifier que la réponse contient les informations attendues
+**Question:** C'est quoi le mot de passe WiFi ?
+**Réponse attendue:** SecretWifi2024!
 
----
-
-## 📡 WiFi et Réseau
-
-### Question 1
-
-> **C'est quoi le mot de passe WiFi ?**
-
-**Réponse attendue :**
-
-- Réseau : `BureauNet-5G`
-- Mot de passe : `SecretWifi2024!`
-
-### Question 2
-
-> **Il y a un WiFi pour les visiteurs ?**
-
-**Réponse attendue :**
-
-- Réseau guest : `BureauNet-Guest`
-- Mot de passe : `Bienvenue123`
-
-### Question 3
-
-> **J'ai un problème de connexion WiFi, je fais quoi ?**
-
-**Réponse attendue :**
-
-- Vérifier le bon réseau
-- Oublier et reconnecter
-- Contacter IT au poste 4242
+**Question:** Quel est le réseau pour les visiteurs ?
+**Réponse attendue:** BureauNet-Guest avec mot de passe Bienvenue123
 
 ---
 
-## 🕐 Horaires et Accès
+## Horaires
 
-### Question 4
+**Question:** Quels sont les horaires d'ouverture ?
+**Réponse attendue:** Lundi-vendredi 8h-20h, samedi 9h-13h
 
-> **C'est quoi les horaires d'ouverture ?**
-
-**Réponse attendue :**
-
-- Lundi-Vendredi : 8h00 - 20h00
-- Samedi : 9h00 - 13h00
-- Dimanche : Fermé
-
-### Question 5
-
-> **C'est quoi le code du parking ?**
-
-**Réponse attendue :**
-
-- Code : `4589#`
-- Change tous les mois
-
-### Question 6
-
-> **J'ai oublié mon badge, je fais quoi ?**
-
-**Réponse attendue :**
-
-- Se présenter à l'accueil avec pièce d'identité
+**Question:** Quel est le code du parking ?
+**Réponse attendue:** 4589#
 
 ---
 
-## 📞 Contacts
+## Contacts
 
-### Question 7
+**Question:** Comment contacter le support ?
+**Réponse attendue:** Poste 4242 ou support@entreprise.com
 
-> **Comment je contacte le support IT ?**
-
-**Réponse attendue :**
-
-- Email : support@entreprise.com
-- Poste : 4242
-
-### Question 8
-
-> **Qui est le responsable IT ?**
-
-**Réponse attendue :**
-
-- Jean Dupont
-- jean.dupont@entreprise.com
-
-### Question 9
-
-> **C'est quoi le numéro des RH ?**
-
-**Réponse attendue :**
-
-- rh@entreprise.com
-- Poste 3100
+**Question:** Qui est le responsable IT ?
+**Réponse attendue:** Jean Dupont
 
 ---
 
-## 🏖️ Congés
+## Congés
 
-### Question 10
+**Question:** Comment poser des congés ?
+**Réponse attendue:** Sur l'intranet, "Mon espace" puis "Demande de congés"
 
-> **Comment je demande des congés ?**
-
-**Réponse attendue :**
-
-- Aller sur l'intranet
-- Mon espace > Demandes de congés
-- Sélectionner dates et type
-- Validation manager sous 48h
-
-### Question 11
-
-> **J'ai combien de jours de congés par an ?**
-
-**Réponse attendue :**
-
-- Congés payés : 25 jours
-- RTT : 12 jours
-
-### Question 12
-
-> **C'est quoi le délai pour demander des congés ?**
-
-**Réponse attendue :**
-
-- < 5 jours : 2 semaines avant
-- > 5 jours : 1 mois avant
+**Question:** Combien de jours de congés par an ?
+**Réponse attendue:** 25 jours + 2 RTT par mois
 
 ---
 
-## 💰 Notes de frais
+## Notes de frais
 
-### Question 13
+**Question:** Comment faire une note de frais ?
+**Réponse attendue:** Intranet > Mon espace > Notes de frais
 
-> **Comment faire une note de frais ?**
-
-**Réponse attendue :**
-
-- Garder les justificatifs
-- Intranet > Mon espace > Notes de frais
-- Ajouter chaque dépense avec photo
-
-### Question 14
-
-> **C'est quoi le plafond pour un repas ?**
-
-**Réponse attendue :**
-
-- Repas midi : 18€ max
-- Repas soir (déplacement) : 25€ max
-
-### Question 15
-
-> **En combien de temps je suis remboursé ?**
-
-**Réponse attendue :**
-
-- 2 semaines après validation
+**Question:** Quel est le plafond repas ?
+**Réponse attendue:** 18€ midi, 25€ soir
 
 ---
 
-## 🐳 Docker (technique)
+## Télétravail
 
-### Question 16
+**Question:** Qui peut faire du télétravail ?
+**Réponse attendue:** CDI après 3 mois avec accord du manager
 
-> **Comment je lance le projet avec Docker ?**
-
-**Réponse attendue :**
-
-- `docker compose up -d`
-- `docker compose logs -f app`
-
-### Question 17
-
-> **C'est quoi la commande pour voir les conteneurs actifs ?**
-
-**Réponse attendue :**
-
-- `docker ps`
-
-### Question 18
-
-> **Comment entrer dans un conteneur ?**
-
-**Réponse attendue :**
-
-- `docker exec -it <id> bash`
+**Question:** Combien de jours de télétravail ?
+**Réponse attendue:** Maximum 2 jours par semaine
 
 ---
 
-## 🏗️ Architecture
+## Réunions
 
-### Question 19
+**Question:** Comment réserver une salle ?
+**Réponse attendue:** Via Outlook, ajouter la salle comme participant
 
-> **C'est quoi la Clean Architecture ?**
-
-**Réponse attendue :**
-
-- 3 couches : Domain, Application, Infrastructure
-- Dépendances vers l'intérieur
-- Séparation des responsabilités
-
-### Question 20
-
-> **C'est quoi un Use Case ?**
-
-**Réponse attendue :**
-
-- Une action métier = une classe
-- Exemple : StreamMessageUseCase
-- Dans la couche Application
+**Question:** Où sont les salles de réunion ?
+**Réponse attendue:** 2ème étage
 
 ---
 
-## 🔌 API
+## Imprimantes
 
-### Question 21
+**Question:** Où sont les imprimantes ?
+**Réponse attendue:** Une par étage, près de la machine à café
 
-> **C'est quoi l'endpoint pour envoyer un message ?**
-
-**Réponse attendue :**
-
-- `POST /api/chat/stream`
-- Streaming SSE
-
-### Question 22
-
-> **Comment faire une recherche sémantique via l'API ?**
-
-**Réponse attendue :**
-
-- `POST /api/documents/search`
-- Body : `{"query": "...", "limit": 3}`
+**Question:** Comment imprimer ?
+**Réponse attendue:** Envoyer à l'imprimante et passer son badge
 
 ---
 
-## ❓ FAQ
+## VPN
 
-### Question 23
-
-> **Comment réinitialiser mon mot de passe ?**
-
-**Réponse attendue :**
-
-- Aller sur https://intranet.entreprise.com/reset-password
-- Email de réinitialisation envoyé
-
-### Question 24
-
-> **Comment réserver une salle de réunion ?**
-
-**Réponse attendue :**
-
-- Via Outlook
-- Créer une réunion
-- Ajouter la salle comme participant
-
-### Question 25
-
-> **Comment accéder au VPN ?**
-
-**Réponse attendue :**
-
-- Installer le client VPN (sur l'intranet)
-- Se connecter avec identifiants habituels
-- Code 2FA par SMS
+**Question:** Comment se connecter au VPN ?
+**Réponse attendue:** Installer le client VPN et utiliser ses identifiants + code 2FA
 
 ---
 
-## 🏠 Télétravail
+## Mot de passe
 
-### Question 26
+**Question:** Comment réinitialiser mon mot de passe ?
+**Réponse attendue:** https://intranet.entreprise.com/reset-password
 
-> **Je peux faire du télétravail ?**
-
-**Réponse attendue :**
-
-- CDI après 3 mois d'ancienneté
-- Max 2 jours/semaine
-- Accord manager requis
-
-### Question 27
-
-> **C'est quoi les horaires de joignabilité en télétravail ?**
-
-**Réponse attendue :**
-
-- 9h-12h et 14h-17h
-
-### Question 28
-
-> **J'ai droit à une aide pour internet en télétravail ?**
-
-**Réponse attendue :**
-
-- Participation forfaitaire de 30€/mois
-
----
-
-## 🔴 Questions qui NE devraient PAS trouver de réponse dans les docs
-
-Ces questions testent que l'IA n'invente pas d'informations :
-
-### Question 29
-
-> **C'est quoi le salaire moyen dans l'entreprise ?**
-
-**Réponse attendue :**
-
-- L'IA devrait dire qu'elle n'a pas cette information
-
-### Question 30
-
-> **Qui est le CEO de l'entreprise ?**
-
-**Réponse attendue :**
-
-- L'IA devrait dire qu'elle n'a pas cette information
-
----
-
-## 📊 Résumé des tests
-
-| #   | Question           | Document source   | Priorité   |
-| --- | ------------------ | ----------------- | ---------- |
-| 1   | Mot de passe WiFi  | WiFi et Réseau    | 🔴 Haute   |
-| 4   | Horaires           | Horaires et Accès | 🔴 Haute   |
-| 10  | Demande congés     | Demande de congés | 🔴 Haute   |
-| 16  | Docker compose     | Guide Docker      | 🟡 Moyenne |
-| 19  | Clean Architecture | Architecture      | 🟡 Moyenne |
-| 29  | Salaire (négatif)  | Aucun             | 🔴 Haute   |
-
----
-
-_Document généré pour tester les fixtures RAG_
+**Question:** Quand changer son mot de passe ?
+**Réponse attendue:** Tous les 90 jours

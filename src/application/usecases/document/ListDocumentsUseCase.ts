@@ -16,7 +16,7 @@ export class ListDocumentsUseCase implements IListDocumentsUseCase {
 
     const [documents, total] = await Promise.all([
       this.documentService.listDocuments(limit, offset),
-      this.documentService.count(),
+      this.documentService.countDocuments(),
     ]);
 
     return { documents, total };

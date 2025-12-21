@@ -1,17 +1,39 @@
 import type {
   Document,
-  DocumentWithDistance,
-  CreateDocumentInput,
+  Chunk,
+  ChunkWithDistance,
+  DocumentWithChunks,
   SearchOptions,
 } from '../../../domain/document/index.js';
 
+export interface CreateDocumentInput {
+  content: string;
+  title?: string;
+}
+
 export interface IDocumentService {
-  addDocument(input: CreateDocumentInput): Promise<Document>;
-  addDocuments(contents: string[]): Promise<Document[]>;
+  // === Documents ===
+  createDocument(input: CreateDocumentInput): Promise<Document>;
   getDocument(id: number): Promise<Document>;
+  getDocumentWithChunks(id: number): Promise<DocumentWithChunks>;
   listDocuments(limit?: number, offset?: number): Promise<Document[]>;
-  count(): Promise<number>;
+  countDocuments(): Promise<number>;
   deleteDocument(id: number): Promise<boolean>;
-  searchByQuery(query: string, options?: SearchOptions): Promise<DocumentWithDistance[]>;
-  searchSimilar(queryEmbedding: number[], options?: SearchOptions): Promise<DocumentWithDistance[]>;
+
+  // === Chunks ===
+  addChunksToDocument(
+    documentId: number,
+    contents: string[]
+  ): Promise<Chunk[]>;
+  countChunks(): Promise<number>;
+
+  // === Search ===
+  searchByQuery(
+    query: string,
+    options?: SearchOptions
+  ): Promise<ChunkWithDistance[]>;
+  searchByEmbedding(
+    embedding: number[],
+    options?: SearchOptions
+  ): Promise<ChunkWithDistance[]>;
 }

@@ -21,8 +21,6 @@ export {
 export {
   AddDocumentUseCase,
   addDocumentUseCase,
-  AddDocumentsUseCase,
-  addDocumentsUseCase,
   AddDocumentWithChunkingUseCase,
   addDocumentWithChunkingUseCase,
   ListDocumentsUseCase,
@@ -36,9 +34,6 @@ export {
   type AddDocumentInput,
   type AddDocumentOutput,
   type IAddDocumentUseCase,
-  type AddDocumentsInput,
-  type AddDocumentsOutput,
-  type IAddDocumentsUseCase,
   type AddDocumentWithChunkingInput,
   type AddDocumentWithChunkingOutput,
   type IAddDocumentWithChunkingUseCase,

@@ -12,7 +12,10 @@ export class AddDocumentUseCase implements IAddDocumentUseCase {
   constructor(private readonly documentService: IDocumentService) {}
 
   async execute(input: AddDocumentInput): Promise<AddDocumentOutput> {
-    const document = await this.documentService.addDocument({ content: input.content });
+    const document = await this.documentService.createDocument({
+      content: input.content,
+      title: input.title,
+    });
     return { document };
   }
 }

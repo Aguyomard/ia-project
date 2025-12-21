@@ -2,59 +2,37 @@ import { getDocumentRepository } from '../../../infrastructure/persistence/index
 import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
 import type {
   Document,
-  DocumentWithDistance,
-  CreateDocumentInput,
+  Chunk,
+  ChunkWithDistance,
+  DocumentWithChunks,
   SearchOptions,
 } from '../../../domain/document/index.js';
 import { EmbeddingGenerationError } from '../../../domain/document/index.js';
-import type { IDocumentService } from '../../ports/out/IDocumentService.js';
+import type {
+  IDocumentService,
+  CreateDocumentInput,
+} from '../../ports/out/IDocumentService.js';
 
 export class DocumentService implements IDocumentService {
-  async addDocument(input: CreateDocumentInput): Promise<Document> {
-    let embedding = input.embedding;
+  // === Documents ===
 
-    if (!embedding) {
-      try {
-        const mistral = getMistralClient();
-        embedding = await mistral.generateEmbedding(input.content);
-      } catch (error) {
-        throw new EmbeddingGenerationError('Failed to generate embedding', error);
-      }
-    }
-
+  async createDocument(input: CreateDocumentInput): Promise<Document> {
     const repository = getDocumentRepository();
-    return repository.create({ content: input.content, embedding });
-  }
-
-  async addDocuments(contents: string[]): Promise<Document[]> {
-    if (contents.length === 0) {
-      return [];
-    }
-
-    let embeddings: number[][];
-    try {
-      const mistral = getMistralClient();
-      embeddings = await mistral.generateEmbeddings(contents);
-    } catch (error) {
-      throw new EmbeddingGenerationError('Failed to generate embeddings', error);
-    }
-
-    const repository = getDocumentRepository();
-    const documents: Document[] = [];
-    for (let i = 0; i < contents.length; i++) {
-      const doc = await repository.create({
-        content: contents[i],
-        embedding: embeddings[i],
-      });
-      documents.push(doc);
-    }
-
-    return documents;
+    return repository.createDocument(input);
   }
 
   async getDocument(id: number): Promise<Document> {
     const repository = getDocumentRepository();
-    const document = await repository.findById(id);
+    const document = await repository.findDocumentById(id);
+    if (!document) {
+      throw new Error(`Document not found: ${id}`);
+    }
+    return document;
+  }
+
+  async getDocumentWithChunks(id: number): Promise<DocumentWithChunks> {
+    const repository = getDocumentRepository();
+    const document = await repository.findDocumentWithChunks(id);
     if (!document) {
       throw new Error(`Document not found: ${id}`);
     }
@@ -63,38 +41,89 @@ export class DocumentService implements IDocumentService {
 
   async listDocuments(limit = 100, offset = 0): Promise<Document[]> {
     const repository = getDocumentRepository();
-    return repository.findAll(limit, offset);
+    return repository.findAllDocuments(limit, offset);
   }
 
-  async count(): Promise<number> {
+  async countDocuments(): Promise<number> {
     const repository = getDocumentRepository();
-    return repository.count();
+    return repository.countDocuments();
   }
 
   async deleteDocument(id: number): Promise<boolean> {
     const repository = getDocumentRepository();
-    return repository.delete(id);
+    return repository.deleteDocument(id);
   }
 
-  async searchByQuery(query: string, options: SearchOptions = {}): Promise<DocumentWithDistance[]> {
+  // === Chunks ===
+
+  async addChunksToDocument(
+    documentId: number,
+    contents: string[]
+  ): Promise<Chunk[]> {
+    if (contents.length === 0) {
+      return [];
+    }
+
+    // Générer les embeddings en batch
+    let embeddings: number[][];
+    try {
+      const mistral = getMistralClient();
+      embeddings = await mistral.generateEmbeddings(contents);
+    } catch (error) {
+      throw new EmbeddingGenerationError(
+        'Failed to generate embeddings',
+        error
+      );
+    }
+
+    // Créer les chunks
+    const repository = getDocumentRepository();
+    const chunks: Chunk[] = [];
+
+    for (let i = 0; i < contents.length; i++) {
+      const chunk = await repository.createChunk({
+        documentId,
+        content: contents[i],
+        embedding: embeddings[i],
+        chunkIndex: i,
+      });
+      chunks.push(chunk);
+    }
+
+    return chunks;
+  }
+
+  async countChunks(): Promise<number> {
+    const repository = getDocumentRepository();
+    return repository.countChunks();
+  }
+
+  // === Search ===
+
+  async searchByQuery(
+    query: string,
+    options: SearchOptions = {}
+  ): Promise<ChunkWithDistance[]> {
     let queryEmbedding: number[];
     try {
       const mistral = getMistralClient();
       queryEmbedding = await mistral.generateEmbedding(query);
     } catch (error) {
-      throw new EmbeddingGenerationError('Failed to generate query embedding', error);
+      throw new EmbeddingGenerationError(
+        'Failed to generate query embedding',
+        error
+      );
     }
 
-    const repository = getDocumentRepository();
-    return repository.searchSimilar(queryEmbedding, options);
+    return this.searchByEmbedding(queryEmbedding, options);
   }
 
-  async searchSimilar(
-    queryEmbedding: number[],
+  async searchByEmbedding(
+    embedding: number[],
     options: SearchOptions = {}
-  ): Promise<DocumentWithDistance[]> {
+  ): Promise<ChunkWithDistance[]> {
     const repository = getDocumentRepository();
-    return repository.searchSimilar(queryEmbedding, options);
+    return repository.searchSimilarChunks(embedding, options);
   }
 }
 

@@ -1,15 +1,28 @@
-import type { Document, DocumentWithDistance } from '../entities/Document.js';
+import type {
+  Document,
+  Chunk,
+  ChunkWithDistance,
+  DocumentWithChunks,
+} from '../entities/Document.js';
 
 /**
  * Input pour créer un document
  */
 export interface CreateDocumentInput {
   content: string;
-  embedding?: number[];
-  /** ID du document parent si c'est un chunk */
-  sourceId?: number;
-  /** Index du chunk dans le document original */
-  chunkIndex?: number;
+  title?: string;
+}
+
+/**
+ * Input pour créer un chunk
+ */
+export interface CreateChunkInput {
+  documentId: number;
+  content: string;
+  embedding: number[];
+  chunkIndex: number;
+  startOffset?: number;
+  endOffset?: number;
 }
 
 /**
@@ -20,77 +33,49 @@ export interface SearchOptions {
   limit?: number;
   /** Distance maximale pour filtrer les résultats */
   maxDistance?: number;
-  /** Exclure les documents sources (qui n'ont pas d'embedding) */
-  excludeSources?: boolean;
 }
 
 /**
  * Interface du repository Document (Port)
- * Implémenté par l'infrastructure (Prisma + pgvector, etc.)
  */
 export interface IDocumentRepository {
-  /**
-   * Ajoute un document
-   */
-  create(input: CreateDocumentInput): Promise<Document>;
+  // === Documents ===
 
-  /**
-   * Ajoute plusieurs documents
-   */
-  createMany(contents: string[]): Promise<Document[]>;
+  /** Crée un document */
+  createDocument(input: CreateDocumentInput): Promise<Document>;
 
-  /**
-   * Récupère un document par son ID
-   */
-  findById(id: number): Promise<Document | null>;
+  /** Récupère un document par son ID */
+  findDocumentById(id: number): Promise<Document | null>;
 
-  /**
-   * Liste les documents avec pagination
-   */
-  findAll(limit: number, offset: number): Promise<Document[]>;
+  /** Liste les documents avec pagination */
+  findAllDocuments(limit: number, offset: number): Promise<Document[]>;
 
-  /**
-   * Compte le nombre total de documents
-   */
-  count(): Promise<number>;
+  /** Compte le nombre de documents */
+  countDocuments(): Promise<number>;
 
-  /**
-   * Supprime un document (et ses chunks si c'est un document source)
-   */
-  delete(id: number): Promise<boolean>;
+  /** Supprime un document (et ses chunks en cascade) */
+  deleteDocument(id: number): Promise<boolean>;
 
-  /**
-   * Recherche les documents similaires par embedding
-   */
-  searchSimilar(
+  /** Récupère un document avec ses chunks */
+  findDocumentWithChunks(id: number): Promise<DocumentWithChunks | null>;
+
+  // === Chunks ===
+
+  /** Crée un chunk */
+  createChunk(input: CreateChunkInput): Promise<Chunk>;
+
+  /** Crée plusieurs chunks en batch */
+  createChunks(inputs: CreateChunkInput[]): Promise<Chunk[]>;
+
+  /** Récupère les chunks d'un document */
+  findChunksByDocumentId(documentId: number): Promise<Chunk[]>;
+
+  /** Compte le nombre total de chunks */
+  countChunks(): Promise<number>;
+
+  /** Recherche les chunks similaires par embedding */
+  searchSimilarChunks(
     queryEmbedding: number[],
     options?: SearchOptions
-  ): Promise<DocumentWithDistance[]>;
-
-  /**
-   * Récupère les chunks d'un document source
-   */
-  findChunksBySourceId(sourceId: number): Promise<Document[]>;
-
-  /**
-   * Crée un document source (sans embedding) et retourne son ID
-   */
-  createSource(content: string): Promise<Document>;
+  ): Promise<ChunkWithDistance[]>;
 }
-
-
-    queryEmbedding: number[],
-    options?: SearchOptions
-  ): Promise<DocumentWithDistance[]>;
-
-  /**
-   * Récupère les chunks d'un document source
-   */
-  findChunksBySourceId(sourceId: number): Promise<Document[]>;
-
-  /**
-   * Crée un document source (sans embedding) et retourne son ID
-   */
-  createSource(content: string): Promise<Document>;
-}
-

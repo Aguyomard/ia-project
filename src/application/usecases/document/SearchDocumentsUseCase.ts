@@ -14,12 +14,12 @@ export class SearchDocumentsUseCase implements ISearchDocumentsUseCase {
   async execute(input: SearchDocumentsInput): Promise<SearchDocumentsOutput> {
     const { query, limit = 5, maxDistance } = input;
 
-    const documents = await this.documentService.searchByQuery(query, {
+    const results = await this.documentService.searchByQuery(query, {
       limit,
       maxDistance,
     });
 
-    return { documents, count: documents.length };
+    return { results, count: results.length };
   }
 }
 

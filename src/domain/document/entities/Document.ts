@@ -1,46 +1,49 @@
 /**
  * Entité Document du domaine
+ * Représente un document source (le texte original complet)
  */
 export interface Document {
   id: number;
   content: string;
-  embedding: number[] | null;
+  title?: string | null;
   createdAt?: Date;
-  /** ID du document parent si c'est un chunk (null sinon) */
-  sourceId?: number | null;
-  /** Index du chunk dans le document original (0-based) */
-  chunkIndex?: number | null;
 }
 
 /**
- * Document avec sa distance de similarité (pour les résultats de recherche)
+ * Entité Chunk du domaine
+ * Représente un fragment de document avec son embedding
  */
-export interface DocumentWithDistance extends Document {
+export interface Chunk {
+  id: number;
+  documentId: number;
+  content: string;
+  embedding: number[];
+  chunkIndex: number;
+  startOffset?: number;
+  endOffset?: number;
+  createdAt?: Date;
+}
+
+/**
+ * Chunk avec sa distance de similarité (pour les résultats de recherche)
+ */
+export interface ChunkWithDistance extends Chunk {
   /** Distance cosinus (plus petit = plus similaire) */
   distance: number;
 }
 
 /**
- * Représente un document source avec ses chunks associés
+ * Document avec ses chunks associés
  */
 export interface DocumentWithChunks extends Document {
-  /** Les chunks de ce document */
-  chunks: Document[];
-  /** Nombre total de chunks */
+  chunks: Chunk[];
   totalChunks: number;
-}
-
-
-  distance: number;
 }
 
 /**
- * Représente un document source avec ses chunks associés
+ * Résultat de recherche enrichi avec infos du document parent
  */
-export interface DocumentWithChunks extends Document {
-  /** Les chunks de ce document */
-  chunks: Document[];
-  /** Nombre total de chunks */
-  totalChunks: number;
+export interface SearchResult {
+  chunk: ChunkWithDistance;
+  document: Document;
 }
-

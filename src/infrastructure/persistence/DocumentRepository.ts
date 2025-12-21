@@ -2,16 +2,16 @@ import type { PrismaClient } from '@prisma/client';
 import prismaClient from '../config/prisma.js';
 import type {
   Document,
-  DocumentWithDistance,
+  Chunk,
+  ChunkWithDistance,
+  DocumentWithChunks,
   IDocumentRepository,
   CreateDocumentInput,
+  CreateChunkInput,
   SearchOptions,
 } from '../../domain/document/index.js';
 import { DomainError } from '../../domain/shared/index.js';
 
-/**
- * Erreur de base de données
- */
 class DatabaseError extends DomainError {
   constructor(message: string, originalError?: unknown) {
     super(message, 'DATABASE_ERROR', originalError);
@@ -19,11 +19,7 @@ class DatabaseError extends DomainError {
 }
 
 /**
- * Repository Prisma pour les documents (pgvector)
- * Implémente IDocumentRepository du domaine
- *
- * Note: Ce repository fait de la persistence pure.
- * Les embeddings doivent être fournis (pas de génération ici).
+ * Repository pour les documents et chunks (pgvector)
  */
 export class DocumentRepository implements IDocumentRepository {
   private readonly prisma: PrismaClient;
@@ -32,104 +28,76 @@ export class DocumentRepository implements IDocumentRepository {
     this.prisma = prisma;
   }
 
-  public async create(input: CreateDocumentInput): Promise<Document> {
-    if (!input.embedding) {
-      throw new DatabaseError('Embedding is required for document creation');
-    }
+  // === Documents ===
 
+  public async createDocument(input: CreateDocumentInput): Promise<Document> {
     try {
-      const embeddingStr = `[${input.embedding.join(',')}]`;
-
-      // Construire la requête selon les champs présents
-      const hasSourceId = input.sourceId !== undefined;
-      const hasChunkIndex = input.chunkIndex !== undefined;
-
-      let result: {
-        id: number;
-        content: string;
-        source_id: number | null;
-        chunk_index: number | null;
-      }[];
-
-      if (hasSourceId && hasChunkIndex) {
-        result = await this.prisma.$queryRawUnsafe(
-          `INSERT INTO documents (content, embedding, source_id, chunk_index)
-           VALUES ($1, $2::vector, $3, $4)
-           RETURNING id, content, source_id, chunk_index`,
-          input.content,
-          embeddingStr,
-          input.sourceId,
-          input.chunkIndex
-        );
-      } else {
-        result = await this.prisma.$queryRawUnsafe(
-          `INSERT INTO documents (content, embedding)
-           VALUES ($1, $2::vector)
-           RETURNING id, content, source_id, chunk_index`,
-          input.content,
-          embeddingStr
-        );
-      }
+      const result = await this.prisma.$queryRawUnsafe<
+        {
+          id: number;
+          content: string;
+          title: string | null;
+          created_at: Date;
+        }[]
+      >(
+        `INSERT INTO documents (content, title)
+         VALUES ($1, $2)
+         RETURNING id, content, title, created_at`,
+        input.content,
+        input.title || null
+      );
 
       const doc = result[0];
       return {
         id: Number(doc.id),
         content: doc.content,
-        embedding: input.embedding,
-        sourceId: doc.source_id ? Number(doc.source_id) : null,
-        chunkIndex: doc.chunk_index,
+        title: doc.title,
+        createdAt: doc.created_at,
       };
     } catch (error) {
-      console.error('[DocumentRepository] Insert error:', error);
-      throw new DatabaseError('Failed to add document', error);
+      throw new DatabaseError('Failed to create document', error);
     }
   }
 
-  public async createMany(contents: string[]): Promise<Document[]> {
-    throw new DatabaseError(
-      'createMany requires embeddings - use DocumentService instead'
-    );
-  }
-
-  public async findById(id: number): Promise<Document | null> {
+  public async findDocumentById(id: number): Promise<Document | null> {
     try {
       const result = await this.prisma.$queryRawUnsafe<
         {
           id: number | bigint;
           content: string;
-          source_id: number | null;
-          chunk_index: number | null;
-          created_at: Date | null;
+          title: string | null;
+          created_at: Date;
         }[]
       >(
-        'SELECT id, content, source_id, chunk_index, created_at FROM documents WHERE id = $1',
+        'SELECT id, content, title, created_at FROM documents WHERE id = $1',
         id
       );
 
-      if (result.length === 0) {
-        return null;
-      }
+      if (result.length === 0) return null;
 
       const doc = result[0];
       return {
         id: Number(doc.id),
         content: doc.content,
-        embedding: null,
-        sourceId: doc.source_id ? Number(doc.source_id) : null,
-        chunkIndex: doc.chunk_index,
-        createdAt: doc.created_at ?? undefined,
+        title: doc.title,
+        createdAt: doc.created_at,
       };
     } catch (error) {
       throw new DatabaseError('Failed to get document', error);
     }
   }
 
-  public async findAll(limit = 100, offset = 0): Promise<Document[]> {
+  public async findAllDocuments(limit = 100, offset = 0): Promise<Document[]> {
     try {
       const results = await this.prisma.$queryRawUnsafe<
-        { id: number | bigint; content: string }[]
+        {
+          id: number | bigint;
+          content: string;
+          title: string | null;
+          created_at: Date;
+        }[]
       >(
-        'SELECT id, content FROM documents ORDER BY id DESC LIMIT $1 OFFSET $2',
+        'SELECT id, content, title, created_at FROM documents ORDER BY id DESC LIMIT $1 OFFSET $2',
         limit,
         offset
       );
@@ -137,14 +105,15 @@ export class DocumentRepository implements IDocumentRepository {
       return results.map((r) => ({
         id: Number(r.id),
         content: r.content,
-        embedding: null,
+        title: r.title,
+        createdAt: r.created_at,
       }));
     } catch (error) {
       throw new DatabaseError('Failed to list documents', error);
     }
   }
 
-  public async count(): Promise<number> {
+  public async countDocuments(): Promise<number> {
     try {
       const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
         'SELECT COUNT(*) as count FROM documents'
@@ -155,7 +124,7 @@ export class DocumentRepository implements IDocumentRepository {
     }
   }
 
-  public async delete(id: number): Promise<boolean> {
+  public async deleteDocument(id: number): Promise<boolean> {
     try {
       const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
         `WITH deleted AS (
@@ -164,27 +133,147 @@ export class DocumentRepository implements IDocumentRepository {
         SELECT COUNT(*) as count FROM deleted`,
         id
       );
-
       return Number(result[0]?.count) > 0;
     } catch (error) {
       throw new DatabaseError('Failed to delete document', error);
     }
   }
 
-  public async searchSimilar(
+  public async findDocumentWithChunks(
+    id: number
+  ): Promise<DocumentWithChunks | null> {
+    const doc = await this.findDocumentById(id);
+    if (!doc) return null;
+
+    const chunks = await this.findChunksByDocumentId(id);
+
+    return {
+      ...doc,
+      chunks,
+      totalChunks: chunks.length,
+    };
+  }
+
+  // === Chunks ===
+
+  public async createChunk(input: CreateChunkInput): Promise<Chunk> {
+    try {
+      const embeddingStr = `[${input.embedding.join(',')}]`;
+
+      const result = await this.prisma.$queryRawUnsafe<
+        {
+          id: number;
+          document_id: number;
+          content: string;
+          chunk_index: number;
+          start_offset: number | null;
+          end_offset: number | null;
+          created_at: Date;
+        }[]
+      >(
+        `INSERT INTO chunks (document_id, content, embedding, chunk_index, start_offset, end_offset)
+         VALUES ($1, $2, $3::vector, $4, $5, $6)
+         RETURNING id, document_id, content, chunk_index, start_offset, end_offset, created_at`,
+        input.documentId,
+        input.content,
+        embeddingStr,
+        input.chunkIndex,
+        input.startOffset ?? null,
+        input.endOffset ?? null
+      );
+
+      const chunk = result[0];
+      return {
+        id: Number(chunk.id),
+        documentId: Number(chunk.document_id),
+        content: chunk.content,
+        embedding: input.embedding,
+        chunkIndex: chunk.chunk_index,
+        startOffset: chunk.start_offset ?? undefined,
+        endOffset: chunk.end_offset ?? undefined,
+        createdAt: chunk.created_at,
+      };
+    } catch (error) {
+      throw new DatabaseError('Failed to create chunk', error);
+    }
+  }
+
+  public async createChunks(inputs: CreateChunkInput[]): Promise<Chunk[]> {
+    const chunks: Chunk[] = [];
+    for (const input of inputs) {
+      const chunk = await this.createChunk(input);
+      chunks.push(chunk);
+    }
+    return chunks;
+  }
+
+  public async findChunksByDocumentId(documentId: number): Promise<Chunk[]> {
+    try {
+      const results = await this.prisma.$queryRawUnsafe<
+        {
+          id: number | bigint;
+          document_id: number;
+          content: string;
+          chunk_index: number;
+          start_offset: number | null;
+          end_offset: number | null;
+          created_at: Date;
+        }[]
+      >(
+        `SELECT id, document_id, content, chunk_index, start_offset, end_offset, created_at
+         FROM chunks
+         WHERE document_id = $1
+         ORDER BY chunk_index`,
+        documentId
+      );
+
+      return results.map((r) => ({
+        id: Number(r.id),
+        documentId: Number(r.document_id),
+        content: r.content,
+        embedding: [], // Not loaded for performance
+        chunkIndex: r.chunk_index,
+        startOffset: r.start_offset ?? undefined,
+        endOffset: r.end_offset ?? undefined,
+        createdAt: r.created_at,
+      }));
+    } catch (error) {
+      throw new DatabaseError('Failed to get chunks', error);
+    }
+  }
+
+  public async countChunks(): Promise<number> {
+    try {
+      const result = await this.prisma.$queryRawUnsafe<{ count: bigint }[]>(
+        'SELECT COUNT(*) as count FROM chunks'
+      );
+      return Number(result[0]?.count ?? 0);
+    } catch (error) {
+      throw new DatabaseError('Failed to count chunks', error);
+    }
+  }
+
+  public async searchSimilarChunks(
     queryEmbedding: number[],
     options: SearchOptions = {}
-  ): Promise<DocumentWithDistance[]> {
+  ): Promise<ChunkWithDistance[]> {
     const { limit = 5, maxDistance } = options;
     const embeddingStr = `[${queryEmbedding.join(',')}]`;
 
     try {
-      let results: { id: number | bigint; content: string; distance: number }[];
+      let results: {
+        id: number | bigint;
+        document_id: number;
+        content: string;
+        chunk_index: number;
+        distance: number;
+      }[];
 
       if (maxDistance !== undefined) {
         results = await this.prisma.$queryRawUnsafe(
-          `SELECT id, content, embedding <=> $1::vector AS distance
-           FROM documents
+          `SELECT id, document_id, content, chunk_index, 
+                  embedding <=> $1::vector AS distance
+           FROM chunks
            WHERE embedding <=> $1::vector < $2
            ORDER BY distance
            LIMIT $3`,
@@ -194,8 +283,9 @@ export class DocumentRepository implements IDocumentRepository {
         );
       } else {
         results = await this.prisma.$queryRawUnsafe(
-          `SELECT id, content, embedding <=> $1::vector AS distance
-           FROM documents
+          `SELECT id, document_id, content, chunk_index,
+                  embedding <=> $1::vector AS distance
+           FROM chunks
            ORDER BY distance
            LIMIT $2`,
           embeddingStr,
@@ -205,67 +295,14 @@ export class DocumentRepository implements IDocumentRepository {
 
       return results.map((r) => ({
         id: Number(r.id),
+        documentId: Number(r.document_id),
         content: r.content,
-        embedding: null,
+        embedding: [],
+        chunkIndex: r.chunk_index,
         distance: Number(r.distance),
       }));
     } catch (error) {
-      throw new DatabaseError('Failed to search documents', error);
-    }
-  }
-
-  public async findChunksBySourceId(sourceId: number): Promise<Document[]> {
-    try {
-      const results = await this.prisma.$queryRawUnsafe<
-        {
-          id: number | bigint;
-          content: string;
-          source_id: number;
-          chunk_index: number;
-        }[]
-      >(
-        `SELECT id, content, source_id, chunk_index
-         FROM documents
-         WHERE source_id = $1
-         ORDER BY chunk_index`,
-        sourceId
-      );
-
-      return results.map((r) => ({
-        id: Number(r.id),
-        content: r.content,
-        embedding: null,
-        sourceId: Number(r.source_id),
-        chunkIndex: r.chunk_index,
-      }));
-    } catch (error) {
-      throw new DatabaseError('Failed to get chunks', error);
-    }
-  }
-
-  public async createSource(content: string): Promise<Document> {
-    try {
-      // Crée un document source sans embedding (juste pour garder le contenu original)
-      const result = await this.prisma.$queryRawUnsafe<
-        { id: number; content: string; created_at: Date }[]
-      >(
-        `INSERT INTO documents (content, embedding)
-         VALUES ($1, NULL)
-         RETURNING id, content, created_at`,
-        content
-      );
-
-      const doc = result[0];
-      return {
-        id: Number(doc.id),
-        content: doc.content,
-        embedding: null,
-        sourceId: null,
-        chunkIndex: null,
-        createdAt: doc.created_at,
-      };
-    } catch (error) {
-      throw new DatabaseError('Failed to create source document', error);
+      throw new DatabaseError('Failed to search chunks', error);
     }
   }
 }

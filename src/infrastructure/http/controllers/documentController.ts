@@ -1,7 +1,6 @@
 import type { Request, Response } from 'express';
 import {
   addDocumentUseCase,
-  addDocumentsUseCase,
   listDocumentsUseCase,
   getDocumentUseCase,
   deleteDocumentUseCase,
@@ -9,11 +8,15 @@ import {
   addDocumentWithChunkingUseCase,
   type ChunkInfo,
 } from '../../../application/usecases/index.js';
-import type { Document } from '../../../domain/document/index.js';
+import type { Chunk } from '../../../domain/document/index.js';
 
+/**
+ * Crée un document simple sans chunks
+ * POST /api/documents
+ */
 export async function addDocument(req: Request, res: Response): Promise<void> {
   try {
-    const { content } = req.body;
+    const { content, title } = req.body;
 
     if (!content || typeof content !== 'string') {
       res.status(400).json({ error: 'Content is required' });
@@ -25,7 +28,7 @@ export async function addDocument(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const result = await addDocumentUseCase.execute({ content });
+    const result = await addDocumentUseCase.execute({ content, title });
     res.status(201).json(result);
   } catch (error) {
     console.error('Error adding document:', error);
@@ -33,32 +36,10 @@ export async function addDocument(req: Request, res: Response): Promise<void> {
   }
 }
 
-export async function addDocuments(req: Request, res: Response): Promise<void> {
-  try {
-    const { contents } = req.body;
-
-    if (!Array.isArray(contents) || contents.length === 0) {
-      res.status(400).json({ error: 'Contents array is required' });
-      return;
-    }
-
-    for (const content of contents) {
-      if (typeof content !== 'string' || content.trim().length === 0) {
-        res
-          .status(400)
-          .json({ error: 'All contents must be non-empty strings' });
-        return;
-      }
-    }
-
-    const result = await addDocumentsUseCase.execute({ contents });
-    res.status(201).json(result);
-  } catch (error) {
-    console.error('Error adding documents:', error);
-    res.status(500).json({ error: 'Failed to add documents' });
-  }
-}
-
+/**
+ * Liste tous les documents
+ * GET /api/documents
+ */
 export async function listDocuments(
   req: Request,
   res: Response
@@ -75,6 +56,10 @@ export async function listDocuments(
   }
 }
 
+/**
+ * Récupère un document avec ses chunks
+ * GET /api/documents/:id
+ */
 export async function getDocument(req: Request, res: Response): Promise<void> {
   try {
     const id = parseInt(req.params.id);
@@ -90,8 +75,9 @@ export async function getDocument(req: Request, res: Response): Promise<void> {
     if (
       error &&
       typeof error === 'object' &&
-      'code' in error &&
-      error.code === 'NOT_FOUND'
+      'message' in error &&
+      typeof error.message === 'string' &&
+      error.message.includes('not found')
     ) {
       res.status(404).json({ error: 'Document not found' });
       return;
@@ -101,6 +87,10 @@ export async function getDocument(req: Request, res: Response): Promise<void> {
   }
 }
 
+/**
+ * Supprime un document (et ses chunks en cascade)
+ * DELETE /api/documents/:id
+ */
 export async function deleteDocument(
   req: Request,
   res: Response
@@ -127,6 +117,10 @@ export async function deleteDocument(
   }
 }
 
+/**
+ * Recherche sémantique dans les chunks
+ * POST /api/documents/search
+ */
 export async function searchDocuments(
   req: Request,
   res: Response
@@ -144,7 +138,7 @@ export async function searchDocuments(
       limit,
       maxDistance,
     });
-    res.json({ results: result.documents });
+    res.json({ results: result.results });
   } catch (error) {
     console.error('Error searching documents:', error);
     res.status(500).json({ error: 'Failed to search documents' });
@@ -155,7 +149,7 @@ export async function searchDocuments(
  * Ajoute un document avec chunking automatique et overlap
  *
  * Le document est découpé en chunks avec chevauchement,
- * chaque chunk étant sauvegardé comme un document séparé
+ * chaque chunk étant sauvegardé dans la table `chunks`
  * avec son propre embedding.
  *
  * POST /api/documents/chunked
@@ -210,22 +204,25 @@ export async function addDocumentWithChunking(
 
     res.status(201).json({
       message: `Document split into ${result.totalChunks} chunks`,
-      sourceId: result.sourceId,
+      document: {
+        id: result.document.id,
+        title: result.document.title,
+        contentLength: result.document.content.length,
+      },
       totalChunks: result.totalChunks,
       originalLength: result.originalLength,
-      documents: result.documents.map((doc: Document) => ({
-        id: doc.id,
-        sourceId: doc.sourceId,
-        chunkIndex: doc.chunkIndex,
+      chunks: result.chunks.map((chunk: Chunk) => ({
+        id: chunk.id,
+        chunkIndex: chunk.chunkIndex,
         contentPreview:
-          doc.content.substring(0, 100) +
-          (doc.content.length > 100 ? '...' : ''),
+          chunk.content.substring(0, 100) +
+          (chunk.content.length > 100 ? '...' : ''),
       })),
-      chunks: result.chunks.map((chunk: ChunkInfo) => ({
-        index: chunk.index,
-        startOffset: chunk.startOffset,
-        endOffset: chunk.endOffset,
-        length: chunk.content.length,
+      chunkInfos: result.chunkInfos.map((info: ChunkInfo) => ({
+        index: info.index,
+        startOffset: info.startOffset,
+        endOffset: info.endOffset,
+        length: info.content.length,
       })),
     });
   } catch (error) {

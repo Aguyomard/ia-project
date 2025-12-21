@@ -4,37 +4,28 @@ import type {
   AddDocumentWithChunkingOutput,
   ChunkInfo,
 } from '../../ports/in/document.js';
-import type { IDocumentService } from '../../ports/out/IDocumentService.js';
-import { getDocumentService } from '../../services/document/index.js';
+import { getDocumentRepository } from '../../../infrastructure/persistence/index.js';
+import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
 import {
   getChunkingService,
   type ChunkingService,
 } from '../../services/chunking/index.js';
-import { getDocumentRepository } from '../../../infrastructure/persistence/index.js';
-import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
-import type { Document } from '../../../domain/document/index.js';
+import type { Chunk } from '../../../domain/document/index.js';
 
 export type { AddDocumentWithChunkingInput, AddDocumentWithChunkingOutput };
 
 /**
- * Use Case : Ajouter un document avec chunking automatique et overlap
+ * Use Case : Ajouter un document avec chunking automatique
  *
- * Ce use case :
- * 1. Sauvegarde le document original (sans embedding) comme source
- * 2. Découpe le document en chunks avec chevauchement
- * 3. Génère un embedding pour chaque chunk
- * 4. Sauvegarde chaque chunk avec référence au document source
- *
- * Le chevauchement (overlap) permet de préserver le contexte entre les chunks,
- * améliorant ainsi la qualité de la recherche sémantique.
+ * 1. Crée le document source dans la table `documents`
+ * 2. Découpe le contenu en chunks avec overlap
+ * 3. Génère les embeddings pour chaque chunk
+ * 4. Sauvegarde les chunks dans la table `chunks`
  */
 export class AddDocumentWithChunkingUseCase
   implements IAddDocumentWithChunkingUseCase
 {
-  constructor(
-    private readonly documentService: IDocumentService,
-    private readonly chunkingService: ChunkingService
-  ) {}
+  constructor(private readonly chunkingService: ChunkingService) {}
 
   async execute(
     input: AddDocumentWithChunkingInput
@@ -55,54 +46,58 @@ export class AddDocumentWithChunkingUseCase
     const repository = getDocumentRepository();
     const mistral = getMistralClient();
 
-    // 2. Créer le document source (sans embedding, juste pour garder le contenu original)
-    const sourceDoc = await repository.createSource(content);
-    console.log(`📝 Source document created with ID: ${sourceDoc.id}`);
+    // 2. Créer le document source
+    const document = await repository.createDocument({
+      content,
+      title: content.substring(0, 100),
+    });
+    console.log(`📝 Document created with ID: ${document.id}`);
 
     // 3. Générer les embeddings pour tous les chunks en batch
-    const chunkContents = chunkingResult.chunks.map((chunk) => chunk.content);
+    const chunkContents = chunkingResult.chunks.map((c) => c.content);
     const embeddings = await mistral.generateEmbeddings(chunkContents);
 
-    // 4. Sauvegarder chaque chunk avec référence au document source
-    const documents: Document[] = [];
+    // 4. Sauvegarder les chunks
+    const chunks: Chunk[] = [];
     for (let i = 0; i < chunkingResult.chunks.length; i++) {
-      const chunk = chunkingResult.chunks[i];
-      const doc = await repository.create({
-        content: chunk.content,
+      const chunkData = chunkingResult.chunks[i];
+      const chunk = await repository.createChunk({
+        documentId: document.id,
+        content: chunkData.content,
         embedding: embeddings[i],
-        sourceId: sourceDoc.id,
-        chunkIndex: chunk.index,
+        chunkIndex: chunkData.index,
+        startOffset: chunkData.startOffset,
+        endOffset: chunkData.endOffset,
       });
-      documents.push(doc);
+      chunks.push(chunk);
     }
 
     // 5. Construire les infos des chunks pour le retour
-    const chunks: ChunkInfo[] = chunkingResult.chunks.map((chunk) => ({
-      content: chunk.content,
-      index: chunk.index,
-      startOffset: chunk.startOffset,
-      endOffset: chunk.endOffset,
+    const chunkInfos: ChunkInfo[] = chunkingResult.chunks.map((c) => ({
+      content: c.content,
+      index: c.index,
+      startOffset: c.startOffset,
+      endOffset: c.endOffset,
     }));
 
     console.log(
-      `✅ ${documents.length} chunks saved to database (source_id: ${sourceDoc.id})`
+      `✅ ${chunks.length} chunks saved to database (document_id: ${document.id})`
     );
 
     return {
-      documents,
+      document,
       chunks,
+      chunkInfos,
       totalChunks: chunkingResult.totalChunks,
       originalLength: chunkingResult.originalLength,
-      sourceId: sourceDoc.id,
     };
   }
 }
 
 export function createAddDocumentWithChunkingUseCase(
-  documentService: IDocumentService = getDocumentService(),
   chunkingService: ChunkingService = getChunkingService()
 ): AddDocumentWithChunkingUseCase {
-  return new AddDocumentWithChunkingUseCase(documentService, chunkingService);
+  return new AddDocumentWithChunkingUseCase(chunkingService);
 }
 
 export const addDocumentWithChunkingUseCase =

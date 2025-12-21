@@ -13,7 +13,7 @@ export interface RAGConfig {
 }
 
 export const DEFAULT_RAG_CONFIG: RAGConfig = {
-  maxDocuments: 3,
+  maxDocuments: 5,
   maxDistance: 0.7,
 };
 

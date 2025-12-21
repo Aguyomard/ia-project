@@ -260,7 +260,9 @@ async function addDocument() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to add document with chunking');
+        throw new Error(
+          errorData.error || 'Failed to add document with chunking'
+        );
       }
 
       const data = await response.json();
@@ -289,9 +291,10 @@ async function addDocument() {
     await loadDocuments();
   } catch (error) {
     console.error('Error adding document:', error);
-    addMessage.value = error instanceof Error
-      ? `❌ ${error.message}`
-      : "❌ Erreur lors de l'ajout du document";
+    addMessage.value =
+      error instanceof Error
+        ? `❌ ${error.message}`
+        : "❌ Erreur lors de l'ajout du document";
     addMessageType.value = 'error';
   } finally {
     isAdding.value = false;
@@ -475,7 +478,7 @@ h3 {
   cursor: pointer;
 }
 
-.checkbox-label input[type="checkbox"] {
+.checkbox-label input[type='checkbox'] {
   width: 18px;
   height: 18px;
   accent-color: #6366f1;
@@ -508,7 +511,7 @@ h3 {
   font-size: 0.9rem;
 }
 
-.param-group input[type="number"] {
+.param-group input[type='number'] {
   width: 80px;
   padding: 8px 10px;
   background: #16162a;
@@ -519,7 +522,7 @@ h3 {
   text-align: center;
 }
 
-.param-group input[type="number"]:focus {
+.param-group input[type='number']:focus {
   outline: none;
   border-color: #6366f1;
 }

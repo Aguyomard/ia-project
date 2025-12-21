@@ -1,8 +1,10 @@
 // Entities
 export type {
   Document,
-  DocumentWithDistance,
+  Chunk,
+  ChunkWithDistance,
   DocumentWithChunks,
+  SearchResult,
 } from './entities/Document.js';
 
 // Value Objects
@@ -20,5 +22,6 @@ export {
 export type {
   IDocumentRepository,
   CreateDocumentInput,
+  CreateChunkInput,
   SearchOptions,
 } from './repositories/IDocumentRepository.js';

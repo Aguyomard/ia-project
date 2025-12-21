@@ -17,9 +17,9 @@ export class RAGService implements IRAGService {
   async buildEnrichedPrompt(userMessage: string): Promise<RAGContext> {
     try {
       const documentService = getDocumentService();
-      const docCount = await documentService.count();
+      const chunkCount = await documentService.countChunks();
 
-      if (docCount === 0) {
+      if (chunkCount === 0) {
         return {
           enrichedPrompt: BASE_SYSTEM_PROMPT,
           documentsFound: 0,
@@ -27,12 +27,12 @@ export class RAGService implements IRAGService {
         };
       }
 
-      const relevantDocs = await documentService.searchByQuery(userMessage, {
+      const relevantChunks = await documentService.searchByQuery(userMessage, {
         limit: this.config.maxDocuments,
         maxDistance: this.config.maxDistance,
       });
 
-      if (relevantDocs.length === 0) {
+      if (relevantChunks.length === 0) {
         return {
           enrichedPrompt: BASE_SYSTEM_PROMPT,
           documentsFound: 0,
@@ -40,11 +40,11 @@ export class RAGService implements IRAGService {
         };
       }
 
-      const context = relevantDocs
-        .map((doc, i) => `[Document ${i + 1}]\n${doc.content}`)
+      const context = relevantChunks
+        .map((chunk, i) => `[Document ${i + 1}]\n${chunk.content}`)
         .join('\n\n---\n\n');
 
-      const distances = relevantDocs.map((d) => d.distance);
+      const distances = relevantChunks.map((c) => c.distance);
 
       const enrichedPrompt = `${BASE_SYSTEM_PROMPT}
 
@@ -59,7 +59,7 @@ Instructions :
 
       return {
         enrichedPrompt,
-        documentsFound: relevantDocs.length,
+        documentsFound: relevantChunks.length,
         distances,
       };
     } catch (error) {

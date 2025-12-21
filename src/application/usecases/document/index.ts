@@ -6,12 +6,6 @@ export {
 } from './AddDocumentUseCase.js';
 
 export {
-  AddDocumentsUseCase,
-  addDocumentsUseCase,
-  createAddDocumentsUseCase,
-} from './AddDocumentsUseCase.js';
-
-export {
   ListDocumentsUseCase,
   listDocumentsUseCase,
   createListDocumentsUseCase,
@@ -46,9 +40,6 @@ export type {
   AddDocumentInput,
   AddDocumentOutput,
   IAddDocumentUseCase,
-  AddDocumentsInput,
-  AddDocumentsOutput,
-  IAddDocumentsUseCase,
   ListDocumentsInput,
   ListDocumentsOutput,
   IListDocumentsUseCase,
