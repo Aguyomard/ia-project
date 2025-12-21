@@ -6,7 +6,7 @@ export {
 
 export type {
   Document,
-  DocumentWithDistance,
+  ChunkWithDistance,
   IDocumentRepository,
   CreateDocumentInput,
   SearchOptions,

@@ -1,4 +1,3 @@
-import type { PrismaClient } from '@prisma/client';
 import prismaClient from '../config/prisma.js';
 import type {
   Document,
@@ -12,6 +11,8 @@ import type {
 } from '../../domain/document/index.js';
 import { DomainError } from '../../domain/shared/index.js';
 
+type PrismaClientType = typeof prismaClient;
+
 class DatabaseError extends DomainError {
   constructor(message: string, originalError?: unknown) {
     super(message, 'DATABASE_ERROR', originalError);
@@ -22,9 +23,9 @@ class DatabaseError extends DomainError {
  * Repository pour les documents et chunks (pgvector)
  */
 export class DocumentRepository implements IDocumentRepository {
-  private readonly prisma: PrismaClient;
+  private readonly prisma: PrismaClientType;
 
-  public constructor(prisma: PrismaClient = prismaClient) {
+  public constructor(prisma: PrismaClientType = prismaClient) {
     this.prisma = prisma;
   }
 
@@ -311,7 +312,7 @@ export class DocumentRepository implements IDocumentRepository {
 let instance: DocumentRepository | null = null;
 
 export function getDocumentRepository(
-  prisma?: PrismaClient
+  prisma?: PrismaClientType
 ): DocumentRepository {
   if (!instance) {
     instance = new DocumentRepository(prisma);

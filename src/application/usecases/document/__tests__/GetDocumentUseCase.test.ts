@@ -19,7 +19,6 @@ describe('GetDocumentUseCase', () => {
     content: 'Test document content',
     title: 'Test Title',
     createdAt: new Date('2024-01-01'),
-    updatedAt: new Date('2024-01-01'),
     chunks: [
       {
         id: 1,
@@ -32,6 +31,7 @@ describe('GetDocumentUseCase', () => {
         createdAt: new Date('2024-01-01'),
       },
     ],
+    totalChunks: 1,
   };
 
   beforeEach(() => {
@@ -78,4 +78,3 @@ describe('GetDocumentUseCase', () => {
     expect(mockDocumentService.getDocumentWithChunks).toHaveBeenCalledWith(42);
   });
 });
-

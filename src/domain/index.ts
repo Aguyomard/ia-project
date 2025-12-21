@@ -24,7 +24,7 @@ export {
 // Document Domain
 export type {
   Document,
-  DocumentWithDistance,
+  ChunkWithDistance,
   IDocumentRepository,
   CreateDocumentInput,
   SearchOptions,

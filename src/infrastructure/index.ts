@@ -32,7 +32,7 @@ export {
 export {
   testAI,
   addDocument,
-  addDocuments,
+  addDocumentWithChunking,
   listDocuments,
   getDocument,
   deleteDocument,

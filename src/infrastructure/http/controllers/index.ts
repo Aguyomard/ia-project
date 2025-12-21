@@ -4,7 +4,7 @@ export { testAI } from './aiController.js';
 // Document Controller
 export {
   addDocument,
-  addDocuments,
+  addDocumentWithChunking,
   listDocuments,
   getDocument,
   deleteDocument,

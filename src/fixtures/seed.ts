@@ -8,11 +8,9 @@
  *   --dry-run : Affiche ce qui serait inséré sans exécuter
  */
 
-import { PrismaClient } from '@prisma/client';
 import { Mistral } from '@mistralai/mistralai';
+import prisma from '../infrastructure/config/prisma.js';
 import documentFixtures from './documents.js';
-
-const prisma = new PrismaClient();
 
 // Configuration Mistral
 const mistralApiKey = process.env.MISTRAL_API_KEY;
