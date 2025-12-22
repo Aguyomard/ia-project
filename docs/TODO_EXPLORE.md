@@ -8,14 +8,15 @@ Liste des technologies et concepts à approfondir pour améliorer le projet.
 
 Alternatives à pgvector pour le stockage et la recherche de vecteurs :
 
-| Technologie | Description |
-|-------------|-------------|
-| **Pinecone** | Base vectorielle managée (cloud) |
-| **Weaviate** | Open-source, GraphQL, modules ML intégrés |
-| **Qdrant** | Open-source, Rust, filtres avancés |
-| **Milvus** | Open-source, scale horizontale, GPU support |
+| Technologie  | Description                                 |
+| ------------ | ------------------------------------------- |
+| **Pinecone** | Base vectorielle managée (cloud)            |
+| **Weaviate** | Open-source, GraphQL, modules ML intégrés   |
+| **Qdrant**   | Open-source, Rust, filtres avancés          |
+| **Milvus**   | Open-source, scale horizontale, GPU support |
 
 ### Questions à explorer
+
 - [ ] Comparaison performance vs pgvector
 - [ ] Coût hébergement cloud vs self-hosted
 - [ ] Intégration avec l'architecture actuelle
@@ -29,5 +30,4 @@ Alternatives à pgvector pour le stockage et la recherche de vecteurs :
 
 ---
 
-*Dernière mise à jour : $(date)*
-
+_Dernière mise à jour : $(date)_
