@@ -28,7 +28,12 @@
             <span class="toggle-icon">📚</span>
             <span class="toggle-label">RAG</span>
           </label>
-          <label class="rag-toggle rerank-toggle" :class="{ disabled: !useRAG }">
+          <label class="rag-toggle" :class="{ disabled: !useRAG }">
+            <input type="checkbox" v-model="useQueryRewrite" :disabled="!useRAG" />
+            <span class="toggle-icon">✏️</span>
+            <span class="toggle-label">Rewrite</span>
+          </label>
+          <label class="rag-toggle" :class="{ disabled: !useRAG }">
             <input type="checkbox" v-model="useReranking" :disabled="!useRAG" />
             <span class="toggle-icon">🔄</span>
             <span class="toggle-label">Rerank</span>
@@ -72,6 +77,7 @@ const isLoading = ref(false);
 const conversationId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
 const useRAG = ref(true);
+const useQueryRewrite = ref(true);
 const useReranking = ref(true);
 
 function formatTime(date: Date): string {
@@ -145,6 +151,7 @@ async function sendMessage(content: string) {
         message: content,
         conversationId: conversationId.value,
         useRAG: useRAG.value,
+        useQueryRewrite: useRAG.value && useQueryRewrite.value,
         useReranking: useRAG.value && useReranking.value,
       }),
     });

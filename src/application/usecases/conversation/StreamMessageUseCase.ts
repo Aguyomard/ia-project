@@ -30,6 +30,7 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
       message,
       useRAG = true,
       useReranking = true,
+      useQueryRewrite = true,
     } = input;
     const { conversationService, mistralClient, ragService } = this.deps;
 
@@ -45,8 +46,16 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
     // Appliquer le RAG uniquement si activé
     let sources: StreamMessageSource[] = [];
     if (useRAG) {
+      // Extraire les messages utilisateur récents pour le contexte de réécriture
+      const conversationHistory = chatHistory
+        .filter((m) => m.role === 'user')
+        .map((m) => m.content)
+        .slice(-3);
+
       const ragContext = await ragService.buildEnrichedPrompt(message, {
         useReranking,
+        useQueryRewrite,
+        conversationHistory,
       });
       if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
         chatHistory[0].content = ragContext.enrichedPrompt;

@@ -1,4 +1,8 @@
-export type { IMistralClient, ChatMessage, ChatOptions } from './IMistralClient.js';
+export type {
+  IMistralClient,
+  ChatMessage,
+  ChatOptions,
+} from './IMistralClient.js';
 export type { IConversationService } from './IConversationService.js';
 export type { IDocumentService } from './IDocumentService.js';
 export type { IRAGService, RAGContext } from './IRAGService.js';
@@ -7,3 +11,7 @@ export type {
   RerankDocument,
   RerankResult,
 } from './IRerankClient.js';
+export type {
+  IQueryRewriterService,
+  QueryRewriteResult,
+} from './IQueryRewriterService.js';

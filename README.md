@@ -6,11 +6,12 @@ Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented
 
 - 💬 **Chat en temps réel** avec streaming des réponses (SSE)
 - 📚 **RAG** : Enrichissement des réponses avec des documents pertinents
+- ✏️ **Query Rewriting** : Reformulation automatique des requêtes via LLM
 - 🔄 **Reranking** : Amélioration de la pertinence avec un cross-encoder
 - 🔍 **Recherche sémantique** par embeddings vectoriels (pgvector)
 - 📄 **Gestion de documents** avec chunking automatique et overlap
 - 🗂️ **Historique des conversations** persistant
-- 🎨 **Interface moderne** Vue 3 avec toggles RAG/Rerank
+- 🎨 **Interface moderne** Vue 3 avec toggles RAG/Rewrite/Rerank
 - 📊 **Affichage des sources** utilisées pour chaque réponse
 
 ## 🏗️ Architecture
@@ -24,6 +25,7 @@ ia-project/
 │   │   │   ├── chunking/        # Découpage de documents
 │   │   │   ├── conversation/    # Gestion des conversations
 │   │   │   ├── document/        # Gestion des documents
+│   │   │   ├── queryRewriter/   # Reformulation de requêtes
 │   │   │   └── rag/             # Service RAG + Reranking
 │   │   └── usecases/            # Cas d'utilisation
 │   │       ├── ai/              # Tests IA
@@ -126,7 +128,7 @@ POST /api/conversations
 
 # Envoyer un message (streaming SSE)
 POST /api/chat/stream
-# Body: { message, conversationId, useRAG?: boolean, useReranking?: boolean }
+# Body: { message, conversationId, useRAG?: boolean, useQueryRewrite?: boolean, useReranking?: boolean }
 
 # Récupérer les messages d'une conversation
 GET /api/conversations/:id/messages
@@ -168,13 +170,18 @@ POST http://localhost:8001/rerank
 1. **Ingestion** : Les documents sont découpés en chunks avec overlap
 2. **Embeddings** : Chaque chunk est vectorisé via Mistral Embeddings (1024 dims)
 3. **Stockage** : Les vecteurs sont stockés dans PostgreSQL + pgvector
-4. **Recherche** : La question est vectorisée → recherche des 10 candidats
-5. **Reranking** : Cross-encoder re-score les candidats → Top 3
-6. **Enrichissement** : Les chunks pertinents enrichissent le prompt système
-7. **Génération** : Mistral génère une réponse contextuelle
+4. **Query Rewriting** : La question est reformulée par le LLM pour optimiser la recherche
+5. **Recherche** : La question réécrite est vectorisée → recherche des 10 candidats
+6. **Reranking** : Cross-encoder re-score les candidats → Top 3
+7. **Enrichissement** : Les chunks pertinents enrichissent le prompt système
+8. **Génération** : Mistral génère une réponse contextuelle
 
 ```
-Question utilisateur: "C'est quoi le mot de passe wifi ?"
+Question utilisateur: "mdp wifi ?"
+        │
+        ▼
+   [✏️ Query Rewriting - Mistral]
+   "mdp wifi ?" → "Quel est le mot de passe du réseau WiFi ?"
         │
         ▼
    [Embedding Mistral]  ─────────────────────────────────┐
@@ -199,6 +206,22 @@ Question utilisateur: "C'est quoi le mot de passe wifi ?"
    Réponse: "Le mot de passe WiFi est SecretWifi2024!"
    📚 Sources: WiFi (73%), Mot de passe (50%)
 ```
+
+### Pourquoi le Query Rewriting ?
+
+Le **Query Rewriting** optimise la recherche en reformulant les requêtes utilisateur :
+
+| Requête originale     | Requête réécrite                            |
+| --------------------- | ------------------------------------------- |
+| "mdp wifi ?"          | "Quel est le mot de passe du réseau WiFi ?" |
+| "horaires"            | "Quels sont les horaires d'ouverture ?"     |
+| "ça marche comment ?" | "Comment fonctionne [sujet du contexte] ?"  |
+
+**Avantages** :
+
+- Développe les abréviations (mdp → mot de passe)
+- Reformule les questions vagues
+- Utilise le contexte de conversation pour les pronoms (ça, il, elle...)
 
 ### Pourquoi le Reranking ?
 
@@ -313,16 +336,17 @@ PORT=3000
 
 ## 🎛️ Options du Chat
 
-L'interface de chat propose deux toggles :
+L'interface de chat propose trois toggles :
 
-| Option     | Icône | Description                                      |
-| ---------- | ----- | ------------------------------------------------ |
-| **RAG**    | 📚    | Active la recherche dans la base de documents    |
-| **Rerank** | 🔄    | Active le reranking pour améliorer la pertinence |
+| Option      | Icône | Description                                      |
+| ----------- | ----- | ------------------------------------------------ |
+| **RAG**     | 📚    | Active la recherche dans la base de documents    |
+| **Rewrite** | ✏️    | Reformule la requête pour optimiser la recherche |
+| **Rerank**  | 🔄    | Active le reranking pour améliorer la pertinence |
 
 ```
 ┌─────────────────────────────────────────────┐
-│  ☑ 📚 RAG    ☑ 🔄 Rerank                   │
+│  ☑ 📚 RAG    ☑ ✏️ Rewrite    ☑ 🔄 Rerank   │
 │  ┌───────────────────────────────────────┐ │
 │  │ Écris ton message...                  │ │
 │  └───────────────────────────────────────┘ │
@@ -330,8 +354,9 @@ L'interface de chat propose deux toggles :
 ```
 
 - **RAG désactivé** : Le chatbot utilise uniquement ses connaissances générales
-- **RAG activé, Rerank désactivé** : Recherche vectorielle simple (rapide)
-- **RAG + Rerank activés** : Recherche vectorielle + reranking (plus précis)
+- **RAG seul** : Recherche vectorielle simple (rapide)
+- **RAG + Rewrite** : Reformulation + recherche vectorielle
+- **RAG + Rewrite + Rerank** : Pipeline complet (plus précis)
 
 ## 🤝 Contribution
 

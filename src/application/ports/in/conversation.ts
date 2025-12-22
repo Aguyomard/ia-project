@@ -33,6 +33,8 @@ export interface StreamMessageInput {
   useRAG?: boolean;
   /** Utiliser le reranking pour améliorer la pertinence (défaut: true) */
   useReranking?: boolean;
+  /** Utiliser la reformulation de requête (défaut: true) */
+  useQueryRewrite?: boolean;
 }
 
 export interface StreamMessageSource {

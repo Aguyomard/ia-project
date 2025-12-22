@@ -14,9 +14,10 @@
 6. [Persistance avec Prisma](#6-persistance-avec-prisma)
 7. [Embeddings et Recherche Vectorielle](#7-embeddings-et-recherche-vectorielle)
 8. [RAG - Retrieval-Augmented Generation](#8-rag---retrieval-augmented-generation)
-9. [Architecture Clean Architecture](#9-architecture-clean-architecture)
-10. [Frontend Vue.js](#10-frontend-vuejs)
-11. [Concepts clés à retenir](#11-concepts-clés-à-retenir)
+9. [Query Rewriting - Reformulation de requêtes](#9-query-rewriting---reformulation-de-requêtes)
+10. [Architecture Clean Architecture](#10-architecture-clean-architecture)
+11. [Frontend Vue.js](#11-frontend-vuejs)
+12. [Concepts clés à retenir](#12-concepts-clés-à-retenir)
 
 ---
 
@@ -1331,7 +1332,230 @@ curl -X POST http://localhost:8001/rerank \
 
 ---
 
-## 9. Architecture Clean Architecture
+## 9. Query Rewriting - Reformulation de requêtes
+
+### 9.1 Le problème
+
+Les utilisateurs formulent souvent leurs questions de manière **imprécise** :
+
+| Problème             | Exemple                | Impact sur la recherche    |
+| -------------------- | ---------------------- | -------------------------- |
+| **Abréviations**     | "mdp wifi ?"           | Embedding ≠ "mot de passe" |
+| **Questions vagues** | "ça marche comment ?"  | Pas de contexte            |
+| **Pronoms**          | "c'est quoi le prix ?" | Référence ambiguë          |
+| **Fautes/typos**     | "commnet installer"    | Embedding dégradé          |
+
+### 9.2 La solution : Query Rewriting
+
+Le **Query Rewriting** utilise le LLM pour reformuler la requête **avant** la recherche vectorielle :
+
+```
+User: "mdp wifi ?"
+        │
+        ▼ [Query Rewriting - Mistral]
+"Quel est le mot de passe du réseau WiFi ?"
+        │
+        ▼ [Embedding + Recherche]
+Documents pertinents trouvés ✅
+```
+
+### 9.3 Implémentation
+
+**Interface (Port)** :
+
+```typescript
+// src/application/ports/out/IQueryRewriterService.ts
+
+export interface QueryRewriteResult {
+  originalQuery: string;
+  rewrittenQuery: string;
+  wasRewritten: boolean;
+}
+
+export interface IQueryRewriterService {
+  rewrite(
+    query: string,
+    conversationContext?: string[]
+  ): Promise<QueryRewriteResult>;
+}
+```
+
+**Service** :
+
+```typescript
+// src/application/services/queryRewriter/QueryRewriterService.ts
+
+const REWRITE_SYSTEM_PROMPT = `Tu es un expert en reformulation de requêtes...
+
+RÈGLES:
+- Développe les abréviations (mdp → mot de passe, wifi → réseau WiFi...)
+- Reformule les questions vagues en questions précises
+- Si la question fait référence au contexte (ça, il, elle), inclus explicitement le sujet
+- Garde la requête concise (max 30 mots)
+- Réponds UNIQUEMENT avec la question reformulée`;
+
+export class QueryRewriterService implements IQueryRewriterService {
+  async rewrite(
+    query: string,
+    conversationContext: string[] = []
+  ): Promise<QueryRewriteResult> {
+    // Skip si query trop courte
+    if (query.trim().length < 2) {
+      return {
+        originalQuery: query,
+        rewrittenQuery: query,
+        wasRewritten: false,
+      };
+    }
+
+    try {
+      const userPrompt = this.buildUserPrompt(query, conversationContext);
+
+      const rewrittenQuery = await this.mistralClient.complete(
+        [
+          { role: 'system', content: REWRITE_SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        { temperature: 0.1, maxTokens: 100 }
+      );
+
+      console.log(`✏️ Query rewrite: "${query}" → "${rewrittenQuery}"`);
+
+      return {
+        originalQuery: query,
+        rewrittenQuery: rewrittenQuery.trim(),
+        wasRewritten: true,
+      };
+    } catch (error) {
+      // Fallback : utiliser la query originale
+      return {
+        originalQuery: query,
+        rewrittenQuery: query,
+        wasRewritten: false,
+      };
+    }
+  }
+
+  private buildUserPrompt(query: string, context: string[]): string {
+    if (context.length > 0) {
+      return `CONTEXTE CONVERSATIONNEL:
+${context
+  .slice(-3)
+  .map((msg, i) => `${i + 1}. ${msg}`)
+  .join('\n')}
+
+QUESTION À REFORMULER:
+${query}`;
+    }
+    return `QUESTION À REFORMULER:\n${query}`;
+  }
+}
+```
+
+### 9.4 Intégration dans le RAG
+
+```typescript
+// src/application/services/rag/RAGService.ts
+
+async buildEnrichedPrompt(
+  userMessage: string,
+  options: RAGOptions = {}
+): Promise<RAGContext> {
+  // Étape 0: Query Rewriting (si activé)
+  const shouldRewrite = options.useQueryRewrite ?? true;
+  let searchQuery = userMessage;
+
+  if (shouldRewrite) {
+    const queryRewriter = getQueryRewriterService();
+    const rewriteResult = await queryRewriter.rewrite(
+      userMessage,
+      options.conversationHistory ?? []
+    );
+    searchQuery = rewriteResult.rewrittenQuery;
+  }
+
+  // Étape 1: Recherche avec la query réécrite
+  const candidates = await documentService.searchByQuery(searchQuery, {
+    limit: searchLimit,
+    maxDistance: this.config.maxDistance,
+  });
+
+  // ... reste du pipeline (reranking, enrichissement)
+}
+```
+
+### 9.5 Utilisation du contexte conversationnel
+
+Le Query Rewriter reçoit les **derniers messages utilisateur** pour résoudre les références :
+
+```
+Conversation :
+  User: "Comment se connecter au WiFi ?"
+  Assistant: "Allez dans Paramètres > WiFi > BureauNet"
+  User: "c'est quoi le mdp ?"  ← Référence implicite au WiFi
+
+Query Rewriting avec contexte :
+  "c'est quoi le mdp ?" → "Quel est le mot de passe du réseau WiFi BureauNet ?"
+```
+
+### 9.6 Configuration
+
+```typescript
+// src/application/services/queryRewriter/types.ts
+
+export interface QueryRewriterConfig {
+  enabled: boolean; // Activer/désactiver
+  minQueryLength: number; // Longueur min pour rewriting (défaut: 2)
+  maxContextMessages: number; // Nb messages de contexte (défaut: 3)
+}
+
+export const DEFAULT_QUERY_REWRITER_CONFIG: QueryRewriterConfig = {
+  enabled: true,
+  minQueryLength: 2,
+  maxContextMessages: 3,
+};
+```
+
+### 9.7 Toggle Frontend
+
+L'interface de chat propose un toggle ✏️ **Rewrite** :
+
+```
+┌─────────────────────────────────────────────┐
+│  ☑ 📚 RAG    ☑ ✏️ Rewrite    ☑ 🔄 Rerank   │
+│  ┌───────────────────────────────────────┐ │
+│  │ Écris ton message...                  │ │
+│  └───────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+```
+
+### 9.8 Performance et coût
+
+| Aspect        | Impact                                |
+| ------------- | ------------------------------------- |
+| **Latence**   | +200-400ms (appel LLM)                |
+| **Coût**      | ~0.0001€ par requête (mistral-small)  |
+| **Précision** | +15-30% de recall sur queries courtes |
+
+**Quand désactiver ?**
+
+- Queries déjà bien formulées
+- Latence critique
+- Coût à minimiser
+
+### 9.9 Exemples de reformulation
+
+| Original       | Reformulé                                         |
+| -------------- | ------------------------------------------------- |
+| "mdp"          | "Quel est le mot de passe ?"                      |
+| "wifi ?"       | "Comment se connecter au réseau WiFi ?"           |
+| "horaires"     | "Quels sont les horaires d'ouverture ?"           |
+| "c koi docker" | "Qu'est-ce que Docker et comment ça fonctionne ?" |
+| "et le prix ?" | "Quel est le prix de [sujet précédent] ?"         |
+
+---
+
+## 10. Architecture Clean Architecture
 
 Le projet utilise une **Clean Architecture** (aussi appelée Hexagonal Architecture ou Ports & Adapters) pour une meilleure séparation des responsabilités et testabilité.
 
@@ -1557,7 +1781,7 @@ POST /api/chat/stream
 
 ---
 
-## 10. Frontend Vue.js
+## 11. Frontend Vue.js
 
 ### 10.1 Composants
 
@@ -1602,9 +1826,9 @@ async function sendMessage(content) {
 
 ---
 
-## 11. Concepts clés à retenir
+## 12. Concepts clés à retenir
 
-### 11.1 Patterns
+### 12.1 Patterns
 
 | Pattern                  | Où                           | Pourquoi                               |
 | ------------------------ | ---------------------------- | -------------------------------------- |
@@ -1618,11 +1842,12 @@ async function sendMessage(content) {
 | **Exponential Backoff**  | withRetry()                  | Résilience aux erreurs API             |
 | **Sliding Window**       | tokenizer.ts                 | Gérer les limites de contexte          |
 | **RAG**                  | RAGService                   | Enrichir le LLM avec des docs privés   |
+| **Query Rewriting**      | QueryRewriterService         | Optimiser la query avant recherche     |
 | **Two-Stage Retrieval**  | RAGService + RerankClient    | Recherche large → reranking précis     |
 | **Fallback gracieux**    | RerankClient.isAvailable()   | Continuer si service indisponible      |
 | **Microservice**         | rerank-service (Python)      | Isoler le modèle ML du backend Node.js |
 
-### 11.2 Bonnes pratiques
+### 12.2 Bonnes pratiques
 
 1. **Séparation des responsabilités** : Routes → Controllers → Services
 2. **Typage fort** : Interfaces TypeScript partout
@@ -1631,7 +1856,7 @@ async function sendMessage(content) {
 5. **Logging** : Console.log pour debug, avec préfixes `[ServiceName]`
 6. **Paramètres SQL** : Toujours utiliser `$1, $2` au lieu de concaténation
 
-### 11.3 Points de vigilance
+### 12.3 Points de vigilance
 
 | Problème                 | Solution                       |
 | ------------------------ | ------------------------------ |
@@ -1642,11 +1867,12 @@ async function sendMessage(content) {
 | Erreurs silencieuses     | Classes d'erreurs typées       |
 | Longs documents          | Chunking avant embedding       |
 | Résultats non pertinents | Filtrer par maxDistance        |
+| Queries mal formulées    | Query Rewriting avec LLM       |
 | Résultats mal classés    | Reranking avec cross-encoder   |
 | Service rerank down      | Fallback vers recherche vector |
 | Latence reranking        | Limiter les candidats (10 max) |
 
-### 11.4 Commandes utiles
+### 12.4 Commandes utiles
 
 ```bash
 # Générer le client Prisma
@@ -1694,7 +1920,7 @@ curl -X POST http://localhost:8001/rerank \
   -d '{"query": "test", "documents": [{"id": 1, "content": "doc"}], "top_k": 1}'
 ```
 
-### 11.5 Système de migrations SQL
+### 12.5 Système de migrations SQL
 
 Prisma ne supporte pas le type `vector` de pgvector, donc on utilise un système de migrations SQL personnalisé :
 
@@ -1721,7 +1947,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS my_column TEXT;
 
 Puis exécuter : `docker compose exec app sh -c "cd /app/src && pnpm migrate"`
 
-### 11.6 Fixtures et Seeding
+### 12.6 Fixtures et Seeding
 
 Pour tester l'application avec des données réalistes :
 

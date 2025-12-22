@@ -85,6 +85,7 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
       conversationId,
       useRAG = true,
       useReranking = true,
+      useQueryRewrite = true,
     } = req.body;
 
     if (!message || typeof message !== 'string') {
@@ -108,6 +109,7 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
       conversationId,
       useRAG,
       useReranking,
+      useQueryRewrite,
     })) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }

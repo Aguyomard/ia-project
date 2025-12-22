@@ -1,4 +1,5 @@
 import { getDocumentService } from '../document/index.js';
+import { getQueryRewriterService } from '../queryRewriter/index.js';
 import {
   getRerankClient,
   isRerankConfigured,
@@ -50,6 +51,23 @@ export class RAGService implements IRAGService {
         return this.emptyContext();
       }
 
+      // Étape 0: Query Rewriting (si activé)
+      const shouldRewrite = options.useQueryRewrite ?? true;
+      let searchQuery = userMessage;
+
+      if (shouldRewrite) {
+        try {
+          const queryRewriter = getQueryRewriterService();
+          const rewriteResult = await queryRewriter.rewrite(
+            userMessage,
+            options.conversationHistory ?? []
+          );
+          searchQuery = rewriteResult.rewrittenQuery;
+        } catch (error) {
+          console.warn('⚠️ Query rewrite failed, using original query:', error);
+        }
+      }
+
       // Déterminer si le reranking est activé (option > config)
       const shouldRerank =
         (options.useReranking ?? this.config.useReranking) &&
@@ -60,7 +78,7 @@ export class RAGService implements IRAGService {
         ? this.config.rerankCandidates
         : this.config.maxDocuments;
 
-      const candidates = await documentService.searchByQuery(userMessage, {
+      const candidates = await documentService.searchByQuery(searchQuery, {
         limit: searchLimit,
         maxDistance: this.config.maxDistance,
       });
@@ -74,7 +92,8 @@ export class RAGService implements IRAGService {
       let sources: RAGSource[];
 
       if (shouldRerank) {
-        const reranked = await this.rerankChunks(userMessage, candidates);
+        // Utiliser la query réécrite pour le reranking également
+        const reranked = await this.rerankChunks(searchQuery, candidates);
         finalChunks = reranked.chunks;
         sources = reranked.sources;
       } else {

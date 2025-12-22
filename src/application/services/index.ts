@@ -27,3 +27,11 @@ export {
   type ChunkingResult,
   DEFAULT_CHUNKING_OPTIONS,
 } from './chunking/index.js';
+
+export {
+  QueryRewriterService,
+  getQueryRewriterService,
+  resetQueryRewriterService,
+  type QueryRewriterConfig,
+  DEFAULT_QUERY_REWRITER_CONFIG,
+} from './queryRewriter/index.js';

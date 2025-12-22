@@ -40,8 +40,20 @@ describe('StreamMessageUseCase', () => {
       deleteConversation: vi.fn(),
       addMessage: vi.fn().mockResolvedValue({}),
       getMessages: vi.fn().mockResolvedValue([
-        { id: 'msg-1', role: 'system', content: 'System', conversationId: 'conv-123', createdAt: new Date() },
-        { id: 'msg-2', role: 'user', content: 'Hello', conversationId: 'conv-123', createdAt: new Date() },
+        {
+          id: 'msg-1',
+          role: 'system',
+          content: 'System',
+          conversationId: 'conv-123',
+          createdAt: new Date(),
+        },
+        {
+          id: 'msg-2',
+          role: 'user',
+          content: 'Hello',
+          conversationId: 'conv-123',
+          createdAt: new Date(),
+        },
       ]),
       getChatHistory: vi.fn().mockResolvedValue(mockChatHistory),
       generateTitle: vi.fn(),
@@ -145,7 +157,11 @@ describe('StreamMessageUseCase', () => {
 
     expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
       'Question about documents',
-      { useReranking: true }
+      {
+        useReranking: true,
+        useQueryRewrite: true,
+        conversationHistory: ['Hello'],
+      }
     );
   });
 
@@ -178,7 +194,9 @@ describe('StreamMessageUseCase', () => {
       // consume generator
     }
 
-    expect(mockConversationService.generateTitle).toHaveBeenCalledWith('conv-123');
+    expect(mockConversationService.generateTitle).toHaveBeenCalledWith(
+      'conv-123'
+    );
   });
 
   it('should return sources when RAG is enabled (default)', async () => {
@@ -231,8 +249,71 @@ describe('StreamMessageUseCase', () => {
 
     expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
       'Question',
-      { useReranking: true }
+      {
+        useReranking: true,
+        useQueryRewrite: true,
+        conversationHistory: ['Hello'],
+      }
+    );
+  });
+
+  it('should pass useQueryRewrite=false when disabled', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question',
+      useRAG: true,
+      useQueryRewrite: false,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question',
+      {
+        useReranking: true,
+        useQueryRewrite: false,
+        conversationHistory: ['Hello'],
+      }
+    );
+  });
+
+  it('should pass useQueryRewrite=true by default', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question',
+      useRAG: true,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question',
+      expect.objectContaining({ useQueryRewrite: true })
+    );
+  });
+
+  it('should pass conversation history for query rewriting context', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Follow up question',
+      useRAG: true,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    // Should include previous user message 'Hello' from mockChatHistory
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Follow up question',
+      expect.objectContaining({ conversationHistory: ['Hello'] })
     );
   });
 });
-

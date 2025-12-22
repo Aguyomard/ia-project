@@ -5,6 +5,10 @@ export type { RAGContext };
 export interface RAGOptions {
   /** Activer le reranking (défaut: true) */
   useReranking?: boolean;
+  /** Activer la reformulation de requête (défaut: true) */
+  useQueryRewrite?: boolean;
+  /** Historique de la conversation pour contexte */
+  conversationHistory?: string[];
 }
 
 export interface IRAGService {
