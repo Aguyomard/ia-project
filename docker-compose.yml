@@ -31,6 +31,7 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ia_chat
+      RERANK_SERVICE_URL: http://rerank:8001
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,5 +59,25 @@ services:
       - NODE_ENV=development
     user: "1000:1000"
 
+  rerank:
+    image: ia-project-rerank:latest
+    build:
+      context: ./rerank-service
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - RERANK_MODEL=BAAI/bge-reranker-base
+      - DEFAULT_TOP_K=3
+    volumes:
+      - rerank_cache:/root/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
 volumes:
   postgres_data:
+  rerank_cache:

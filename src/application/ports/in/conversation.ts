@@ -31,6 +31,8 @@ export interface StreamMessageInput {
   message: string;
   /** Utiliser le RAG pour enrichir le contexte (défaut: true) */
   useRAG?: boolean;
+  /** Utiliser le reranking pour améliorer la pertinence (défaut: true) */
+  useReranking?: boolean;
 }
 
 export interface StreamMessageSource {

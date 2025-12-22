@@ -25,7 +25,12 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
   async *execute(
     input: StreamMessageInput
   ): AsyncGenerator<StreamMessageChunk> {
-    const { conversationId, message, useRAG = true } = input;
+    const {
+      conversationId,
+      message,
+      useRAG = true,
+      useReranking = true,
+    } = input;
     const { conversationService, mistralClient, ragService } = this.deps;
 
     await conversationService.addMessage({
@@ -40,7 +45,9 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
     // Appliquer le RAG uniquement si activé
     let sources: StreamMessageSource[] = [];
     if (useRAG) {
-      const ragContext = await ragService.buildEnrichedPrompt(message);
+      const ragContext = await ragService.buildEnrichedPrompt(message, {
+        useReranking,
+      });
       if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
         chatHistory[0].content = ragContext.enrichedPrompt;
       }

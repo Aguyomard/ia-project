@@ -143,7 +143,10 @@ describe('StreamMessageUseCase', () => {
       // consume generator
     }
 
-    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith('Question about documents');
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question about documents',
+      { useReranking: true }
+    );
   });
 
   it('should save full response as assistant message after streaming', async () => {
@@ -226,7 +229,10 @@ describe('StreamMessageUseCase', () => {
       // consume generator
     }
 
-    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith('Question');
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question',
+      { useReranking: true }
+    );
   });
 });
 

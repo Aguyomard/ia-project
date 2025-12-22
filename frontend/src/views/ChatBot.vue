@@ -15,17 +15,25 @@
           :content="message.content"
           :time="message.time"
           :sources="message.sources"
+          :is-loading="isLoading && message.role === 'assistant' && index === messages.length - 1"
         />
 
         <!-- Loading désactivé car on utilise le streaming -->
       </div>
 
       <div class="chat-footer">
-        <label class="rag-toggle">
-          <input type="checkbox" v-model="useRAG" />
-          <span class="toggle-icon">📚</span>
-          <span class="toggle-label">Base de connaissances</span>
-        </label>
+        <div class="options-row">
+          <label class="rag-toggle">
+            <input type="checkbox" v-model="useRAG" />
+            <span class="toggle-icon">📚</span>
+            <span class="toggle-label">RAG</span>
+          </label>
+          <label class="rag-toggle rerank-toggle" :class="{ disabled: !useRAG }">
+            <input type="checkbox" v-model="useReranking" :disabled="!useRAG" />
+            <span class="toggle-icon">🔄</span>
+            <span class="toggle-label">Rerank</span>
+          </label>
+        </div>
         <ChatInput
           placeholder="Écris ton message..."
           :disabled="isLoading"
@@ -64,6 +72,7 @@ const isLoading = ref(false);
 const conversationId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
 const useRAG = ref(true);
+const useReranking = ref(true);
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('fr-FR', {
@@ -136,6 +145,7 @@ async function sendMessage(content: string) {
         message: content,
         conversationId: conversationId.value,
         useRAG: useRAG.value,
+        useReranking: useRAG.value && useReranking.value,
       }),
     });
 
@@ -159,7 +169,7 @@ async function sendMessage(content: string) {
       const text = decoder.decode(value);
       const lines = text.split('\n');
 
-          for (const line of lines) {
+      for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
             const data = JSON.parse(line.slice(6));
@@ -260,6 +270,12 @@ onMounted(() => {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+.options-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
 .rag-toggle {
   display: flex;
   align-items: center;
@@ -302,6 +318,15 @@ onMounted(() => {
 
 .rag-toggle:has(input:checked) .toggle-label {
   color: #a5b4fc;
+}
+
+.rag-toggle.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rag-toggle.disabled input {
+  cursor: not-allowed;
 }
 
 @media (max-width: 640px) {

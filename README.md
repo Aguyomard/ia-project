@@ -1,28 +1,30 @@
-# 🤖 Assistant IA avec RAG
+# 🤖 Assistant IA avec RAG + Reranking
 
-Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented Generation)** pour répondre aux questions en s'appuyant sur une base de documents.
+Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented Generation)** avec **Reranking** pour répondre aux questions en s'appuyant sur une base de documents.
 
 ## ✨ Fonctionnalités
 
-- 💬 **Chat en temps réel** avec streaming des réponses
+- 💬 **Chat en temps réel** avec streaming des réponses (SSE)
 - 📚 **RAG** : Enrichissement des réponses avec des documents pertinents
-- 🔍 **Recherche sémantique** par embeddings vectoriels
-- 📄 **Gestion de documents** avec chunking automatique
+- 🔄 **Reranking** : Amélioration de la pertinence avec un cross-encoder
+- 🔍 **Recherche sémantique** par embeddings vectoriels (pgvector)
+- 📄 **Gestion de documents** avec chunking automatique et overlap
 - 🗂️ **Historique des conversations** persistant
-- 🎨 **Interface moderne** Vue 3
+- 🎨 **Interface moderne** Vue 3 avec toggles RAG/Rerank
+- 📊 **Affichage des sources** utilisées pour chaque réponse
 
 ## 🏗️ Architecture
 
 ```
 ia-project/
-├── src/                          # Backend Node.js
+├── src/                          # Backend Node.js (port 3000)
 │   ├── application/
 │   │   ├── ports/               # Interfaces (ports hexagonaux)
 │   │   ├── services/            # Services métier
 │   │   │   ├── chunking/        # Découpage de documents
 │   │   │   ├── conversation/    # Gestion des conversations
 │   │   │   ├── document/        # Gestion des documents
-│   │   │   └── rag/             # Service RAG
+│   │   │   └── rag/             # Service RAG + Reranking
 │   │   └── usecases/            # Cas d'utilisation
 │   │       ├── ai/              # Tests IA
 │   │       ├── conversation/    # Créer, envoyer messages
@@ -31,16 +33,35 @@ ia-project/
 │   │   ├── conversation/        # Conversation, Message
 │   │   └── document/            # Document, Chunk
 │   ├── infrastructure/          # Implémentations
-│   │   ├── external/mistral/    # Client Mistral AI
+│   │   ├── external/
+│   │   │   ├── mistral/         # Client Mistral AI
+│   │   │   └── rerank/          # Client Rerank (cross-encoder)
 │   │   ├── http/                # API REST Express
 │   │   └── persistence/         # Repositories PostgreSQL
+│   ├── migrations/              # Migrations SQL (pgvector)
+│   ├── fixtures/                # Données de test
 │   └── prisma/                  # Schéma base de données
-├── frontend/                    # Frontend Vue 3
+├── rerank-service/              # Microservice Python (port 8001)
+│   ├── main.py                  # FastAPI + CrossEncoder
+│   ├── requirements.txt         # Dépendances Python
+│   └── Dockerfile               # Image Docker
+├── frontend/                    # Frontend Vue 3 (port 5173)
 │   └── src/
 │       ├── components/chat/     # Composants du chat
 │       └── views/               # Pages (ChatBot, Documents)
-└── docker-compose.yml           # Orchestration
+├── docs/                        # Documentation
+│   └── IA_REVISION.md           # Guide de révision IA
+└── docker-compose.yml           # Orchestration (4 services)
 ```
+
+### Services Docker
+
+| Service  | Port | Description                         |
+| -------- | ---- | ----------------------------------- |
+| app      | 3000 | Backend Node.js/Express             |
+| postgres | 5432 | PostgreSQL + pgvector               |
+| rerank   | 8001 | Microservice Python (cross-encoder) |
+| frontend | 5173 | Vue 3 (dev server)                  |
 
 ## 🚀 Installation
 
@@ -60,12 +81,30 @@ cd ia-project
 cp env.example .env
 # Ajouter votre clé MISTRAL_API_KEY dans .env
 
-# Lancer avec Docker
+# Lancer tous les services (app, postgres, rerank, frontend)
 docker-compose up -d
 
 # Initialiser la base de données
-docker compose exec app pnpm --filter backend prisma:migrate:deploy
-docker compose exec app pnpm --filter backend migrate
+docker compose exec app pnpm prisma:migrate:deploy
+docker compose exec app pnpm migrate
+
+# (Optionnel) Ajouter des documents de test
+docker compose exec app pnpm seed
+```
+
+### Vérifier que tout fonctionne
+
+```bash
+# Vérifier les services
+docker compose ps
+
+# Vérifier le service de reranking
+curl http://localhost:8001/health
+
+# Tester le chat
+curl -X POST http://localhost:3000/api/conversations \
+  -H "Content-Type: application/json" \
+  -d '{}'
 ```
 
 ## 📱 Accès
@@ -74,6 +113,7 @@ docker compose exec app pnpm --filter backend migrate
 | --------------- | --------------------- |
 | Frontend (Chat) | http://localhost:5173 |
 | Backend API     | http://localhost:3000 |
+| Rerank Service  | http://localhost:8001 |
 | Debug Node.js   | http://localhost:9229 |
 
 ## 🔧 API Endpoints
@@ -85,10 +125,11 @@ docker compose exec app pnpm --filter backend migrate
 POST /api/conversations
 
 # Envoyer un message (streaming SSE)
-POST /api/conversations/:id/messages/stream
+POST /api/chat/stream
+# Body: { message, conversationId, useRAG?: boolean, useReranking?: boolean }
 
-# Récupérer une conversation
-GET /api/conversations/:id
+# Récupérer les messages d'une conversation
+GET /api/conversations/:id/messages
 ```
 
 ### Documents
@@ -98,34 +139,78 @@ GET /api/conversations/:id
 GET /api/documents
 
 # Ajouter un document (avec chunking automatique)
-POST /api/documents
+POST /api/documents/chunked
+# Body: { title, content, chunkSize?: number, overlap?: number }
 
-# Rechercher dans les documents
-GET /api/documents/search?query=...
+# Recherche sémantique
+POST /api/documents/search
+# Body: { query, limit?: number, maxDistance?: number }
+
+# Supprimer un document
+DELETE /api/documents/:id
 ```
 
-## 🧠 Comment fonctionne le RAG
+### Rerank Service
+
+```bash
+# Vérifier la santé du service
+GET http://localhost:8001/health
+
+# Reranker des documents
+POST http://localhost:8001/rerank
+# Body: { query, documents: [{id, content}], top_k?: number }
+```
+
+## 🧠 Comment fonctionne le RAG + Reranking
+
+### Pipeline complet
 
 1. **Ingestion** : Les documents sont découpés en chunks avec overlap
-2. **Embeddings** : Chaque chunk est vectorisé via Mistral Embeddings
-3. **Stockage** : Les vecteurs sont stockés dans PostgreSQL
-4. **Recherche** : Les questions utilisateur sont vectorisées et comparées
-5. **Enrichissement** : Les chunks pertinents enrichissent le prompt système
-6. **Génération** : Mistral génère une réponse contextuelle
+2. **Embeddings** : Chaque chunk est vectorisé via Mistral Embeddings (1024 dims)
+3. **Stockage** : Les vecteurs sont stockés dans PostgreSQL + pgvector
+4. **Recherche** : La question est vectorisée → recherche des 10 candidats
+5. **Reranking** : Cross-encoder re-score les candidats → Top 3
+6. **Enrichissement** : Les chunks pertinents enrichissent le prompt système
+7. **Génération** : Mistral génère une réponse contextuelle
 
 ```
-Question utilisateur
-        ↓
-   [Embedding]
-        ↓
-   [Recherche vectorielle] → Documents pertinents
-        ↓
-   [Prompt enrichi] = System prompt + Documents + Question
-        ↓
-   [Mistral AI]
-        ↓
-   Réponse contextuelle
+Question utilisateur: "C'est quoi le mot de passe wifi ?"
+        │
+        ▼
+   [Embedding Mistral]  ─────────────────────────────────┐
+        │                                                │
+        ▼                                                │
+   [Recherche vectorielle pgvector]                      │
+   10 candidats les plus proches                         │
+        │                                                │
+        ▼                                                │
+   [🔄 Reranking - Cross-encoder]                        │
+   bge-reranker-base re-score (query, doc)               │
+   10 → Top 3                                            │
+        │                                                │
+        ▼                                                │
+   [Prompt enrichi]                                      │
+   System + Documents + Question  ◄──────────────────────┘
+        │
+        ▼
+   [🤖 Mistral AI - mistral-small-latest]
+        │
+        ▼
+   Réponse: "Le mot de passe WiFi est SecretWifi2024!"
+   📚 Sources: WiFi (73%), Mot de passe (50%)
 ```
+
+### Pourquoi le Reranking ?
+
+| Étape            | Modèle        | Vitesse   | Précision |
+| ---------------- | ------------- | --------- | --------- |
+| Recherche vector | Bi-encoder    | ⚡ Rapide | Moyenne   |
+| Reranking        | Cross-encoder | 🐢 Lent   | Élevée    |
+
+- **Bi-encoder** : Encode query et documents séparément, rapide mais moins précis
+- **Cross-encoder** : Encode (query, doc) ensemble, lent mais très précis
+
+Le reranking combine les deux : recherche rapide puis re-scoring précis.
 
 ## 🧪 Tests
 
@@ -179,18 +264,28 @@ pnpm build            # Build production
 
 ## 🛠️ Technologies
 
-### Backend
+### Backend (Node.js)
 
-| Technologie       | Usage                      |
-| ----------------- | -------------------------- |
-| Node.js + Express | Serveur API                |
-| TypeScript        | Typage statique            |
-| Mistral AI        | LLM + Embeddings           |
-| PostgreSQL        | Base de données + Vecteurs |
-| Prisma            | ORM                        |
-| Vitest            | Tests unitaires            |
+| Technologie       | Usage                            |
+| ----------------- | -------------------------------- |
+| Node.js + Express | Serveur API REST                 |
+| TypeScript        | Typage statique                  |
+| Mistral AI        | LLM (mistral-small) + Embeddings |
+| PostgreSQL        | Base de données                  |
+| pgvector          | Extension vecteurs + similarité  |
+| Prisma            | ORM                              |
+| Vitest            | Tests unitaires                  |
 
-### Frontend
+### Rerank Service (Python)
+
+| Technologie           | Usage                       |
+| --------------------- | --------------------------- |
+| FastAPI               | API REST Python             |
+| Sentence Transformers | Chargement du cross-encoder |
+| bge-reranker-base     | Modèle de reranking         |
+| PyTorch               | Backend deep learning       |
+
+### Frontend (Vue 3)
 
 | Technologie | Usage                  |
 | ----------- | ---------------------- |
@@ -208,10 +303,35 @@ MISTRAL_API_KEY=votre_clé_api
 # Base de données
 DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ia_chat
 
+# Rerank Service (optionnel - fallback vers vector search si absent)
+RERANK_SERVICE_URL=http://rerank:8001
+
 # Optionnel
 NODE_ENV=development
 PORT=3000
 ```
+
+## 🎛️ Options du Chat
+
+L'interface de chat propose deux toggles :
+
+| Option     | Icône | Description                                      |
+| ---------- | ----- | ------------------------------------------------ |
+| **RAG**    | 📚    | Active la recherche dans la base de documents    |
+| **Rerank** | 🔄    | Active le reranking pour améliorer la pertinence |
+
+```
+┌─────────────────────────────────────────────┐
+│  ☑ 📚 RAG    ☑ 🔄 Rerank                   │
+│  ┌───────────────────────────────────────┐ │
+│  │ Écris ton message...                  │ │
+│  └───────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+```
+
+- **RAG désactivé** : Le chatbot utilise uniquement ses connaissances générales
+- **RAG activé, Rerank désactivé** : Recherche vectorielle simple (rapide)
+- **RAG + Rerank activés** : Recherche vectorielle + reranking (plus précis)
 
 ## 🤝 Contribution
 
@@ -219,6 +339,10 @@ PORT=3000
 2. Lancer les tests : `pnpm test`
 3. Vérifier le lint : `pnpm lint`
 4. Vérifier les types : `pnpm type-check`
+
+## 📚 Documentation
+
+- [Guide de révision IA](docs/IA_REVISION.md) - Concepts et implémentations détaillés
 
 ## 📝 License
 

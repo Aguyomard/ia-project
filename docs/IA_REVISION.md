@@ -60,13 +60,13 @@
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-┌─────────────────────────┐    ┌─────────────────────────┐
-│     MISTRAL AI API      │    │     POSTGRESQL          │
-│  - Chat (mistral-tiny)  │    │  - Prisma ORM           │
-│  - Embeddings           │    │  - pgvector (RAG)       │
-└─────────────────────────┘    └─────────────────────────┘
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+│  MISTRAL AI API  │  │   POSTGRESQL     │  │ RERANK SERVICE   │
+│  - Chat          │  │   - Prisma ORM   │  │ (Python/FastAPI) │
+│  - Embeddings    │  │   - pgvector     │  │ - bge-reranker   │
+└──────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
 ---
@@ -924,6 +924,411 @@ Le RAG consomme des tokens supplémentaires car les documents sont envoyés à c
 
 **Coût approximatif** : ~0.001€ par message avec RAG (mistral-tiny)
 
+### 8.10 Reranking - Améliorer la précision des résultats
+
+#### 8.10.1 Le problème avec la recherche vectorielle seule
+
+La recherche vectorielle (embedding + distance cosinus) est **rapide et scalable**, mais elle a des limites :
+
+| Aspect        | Recherche vectorielle   | Limitation                |
+| ------------- | ----------------------- | ------------------------- |
+| **Méthode**   | Compare les embeddings  | Approximation du sens     |
+| **Vitesse**   | ~10ms pour 10K docs     | ✅ Rapide                 |
+| **Précision** | ~80-90%                 | ⚠️ Peut rater des nuances |
+| **Contexte**  | Encode texte séparément | ❌ Pas de cross-attention |
+
+**Exemple du problème** :
+
+```
+Question : "mot de passe WiFi"
+Document 1 : "Le WiFi du bureau est BureauNet" → Distance 0.3 ✅
+Document 2 : "Le mot de passe WiFi est Secret123" → Distance 0.35 ⚠️
+
+La recherche vectorielle peut mal classer ces documents car les embeddings
+sont générés SÉPARÉMENT pour la question et chaque document.
+```
+
+#### 8.10.2 La solution : Cross-Encoder Reranking
+
+Un **Cross-Encoder** analyse la question ET le document **ensemble**, ce qui permet de capturer les relations fines entre eux.
+
+```
+Recherche vectorielle (rapide, large net)
+            ↓
+      10 candidats
+            ↓
+Cross-Encoder (précis, analyse paire par paire)
+            ↓
+      Top 3 rerankés
+            ↓
+    Contexte pour le LLM
+```
+
+**Différence fondamentale** :
+
+| Bi-Encoder (Embeddings)     | Cross-Encoder (Reranking) |
+| --------------------------- | ------------------------- |
+| Encode Q et D séparément    | Encode (Q, D) ensemble    |
+| `embed(Q)` ↔ `embed(D)`    | `score(Q, D)`             |
+| Rapide (~1ms par doc)       | Lent (~50ms par paire)    |
+| Scalable (millions de docs) | Top-K seulement           |
+| Précision ~85%              | Précision ~95%+           |
+
+#### 8.10.3 Choix technique : bge-reranker-base
+
+Nous avons choisi le modèle **BAAI/bge-reranker-base** :
+
+| Critère         | bge-reranker-base   | Alternatives      |
+| --------------- | ------------------- | ----------------- |
+| **Taille**      | 278 MB              | large: 560 MB     |
+| **Précision**   | ⭐⭐⭐⭐ Très bonne | large: ⭐⭐⭐⭐⭐ |
+| **Vitesse**     | ~50ms / 10 docs     | large: ~100ms     |
+| **Licence**     | MIT (libre)         | ✅                |
+| **Multilingue** | Français ✅         | ✅                |
+
+**Pourquoi pas un modèle plus gros ?**
+
+- Le gain de précision entre `base` et `large` est marginal (~2-3%)
+- La latence double
+- Pour notre cas d'usage (FAQ interne), `base` est suffisant
+
+**Alternatives considérées** :
+
+| Option                | Avantage                      | Inconvénient               | Choix     |
+| --------------------- | ----------------------------- | -------------------------- | --------- |
+| **bge-reranker**      | Open source, local            | Nécessite Python           | ✅ Choisi |
+| **Cohere Rerank API** | Très précis                   | Payant, dépendance externe | ❌        |
+| **LLM Reranking**     | Utilise Mistral déjà en place | Lent, coûteux en tokens    | ❌        |
+| **ms-marco-MiniLM**   | Léger (66MB)                  | Moins précis, anglais      | ❌        |
+
+#### 8.10.4 Architecture du service de reranking
+
+Nous avons créé un **microservice Python séparé** plutôt que d'intégrer le modèle dans Node.js :
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Node.js (App principale)                  │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ RAGService                                                │   │
+│  │   1. searchByQuery() → 10 candidats (pgvector)           │   │
+│  │   2. rerankClient.rerank() → appel HTTP                  │   │
+│  │   3. Top 3 rerankés → contexte enrichi                   │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ HTTP POST /rerank
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Python (Rerank Service)                       │
+│                                                                  │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │ FastAPI + CrossEncoder                                    │   │
+│  │   - Modèle chargé en mémoire au démarrage                │   │
+│  │   - POST /rerank : score chaque paire (query, doc)       │   │
+│  │   - Retourne les docs triés par score                    │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Modèle : BAAI/bge-reranker-base (~278 MB en RAM)              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Pourquoi un service Python séparé ?**
+
+| Raison                  | Explication                                     |
+| ----------------------- | ----------------------------------------------- |
+| **Écosystème ML**       | PyTorch, Transformers sont natifs Python        |
+| **Isolation**           | Le modèle ne bloque pas l'event loop Node.js    |
+| **Scaling indépendant** | On peut scaler le reranker séparément           |
+| **Fallback gracieux**   | Si le service tombe, on continue sans reranking |
+
+#### 8.10.5 Implémentation détaillée
+
+**Service Python (FastAPI)** :
+
+```python
+# rerank-service/main.py
+
+from sentence_transformers import CrossEncoder
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+# Chargement du modèle au démarrage (une seule fois)
+model = CrossEncoder('BAAI/bge-reranker-base', max_length=512)
+
+class RerankRequest(BaseModel):
+    query: str
+    documents: list[dict]  # [{id, content}, ...]
+    top_k: int = 3
+
+@app.post("/rerank")
+async def rerank(request: RerankRequest):
+    # 1. Créer les paires (query, document)
+    pairs = [(request.query, doc["content"]) for doc in request.documents]
+
+    # 2. Scorer chaque paire avec le cross-encoder
+    scores = model.predict(pairs)  # Retourne un score pour chaque paire
+
+    # 3. Trier par score décroissant et prendre le top_k
+    results = sorted(zip(request.documents, scores),
+                     key=lambda x: x[1], reverse=True)
+
+    return {"results": results[:request.top_k]}
+```
+
+**Client TypeScript** :
+
+```typescript
+// src/infrastructure/external/rerank/RerankClient.ts
+
+export class RerankClient implements IRerankClient {
+  private readonly serviceUrl: string;
+  private available: boolean | null = null; // Cache de disponibilité
+
+  constructor() {
+    this.serviceUrl = process.env.RERANK_SERVICE_URL!;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    // Cache le résultat pour éviter des appels répétés
+    if (this.available !== null) return this.available;
+
+    try {
+      const res = await fetch(`${this.serviceUrl}/health`);
+      this.available = res.ok;
+    } catch {
+      this.available = false;
+    }
+    return this.available;
+  }
+
+  async rerank(
+    query: string,
+    documents: RerankDocument[],
+    topK: number
+  ): Promise<RerankResult[]> {
+    const response = await fetch(`${this.serviceUrl}/rerank`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, documents, top_k: topK }),
+    });
+
+    const data = await response.json();
+    return data.results;
+  }
+}
+```
+
+**Intégration dans RAGService** :
+
+```typescript
+// src/application/services/rag/RAGService.ts
+
+async buildEnrichedPrompt(userMessage: string): Promise<RAGContext> {
+  // 1. Recherche vectorielle large (10 candidats)
+  const candidates = await documentService.searchByQuery(userMessage, {
+    limit: this.config.rerankCandidates,  // 10
+    maxDistance: this.config.maxDistance,
+  });
+
+  // 2. Reranking si disponible
+  let finalChunks: ChunkWithDistance[];
+
+  if (this.config.useReranking && isRerankConfigured()) {
+    const reranked = await this.rerankChunks(userMessage, candidates);
+    finalChunks = reranked.chunks;  // Top 3 après reranking
+  } else {
+    // Fallback : prendre les premiers résultats vectoriels
+    finalChunks = candidates.slice(0, this.config.maxDocuments);
+  }
+
+  // 3. Construire le contexte avec les documents rerankés
+  return this.buildContext(finalChunks);
+}
+
+private async rerankChunks(query: string, chunks: ChunkWithDistance[]) {
+  const rerankClient = getRerankClient();
+
+  // Vérifier la disponibilité (avec cache)
+  if (!await rerankClient.isAvailable()) {
+    console.warn('⚠️ Rerank service not available, using vector search only');
+    return this.fallbackToVectorSearch(chunks);
+  }
+
+  // Préparer les documents pour le reranking
+  const documents = chunks.map(c => ({ id: c.id, content: c.content }));
+
+  // Appeler le service
+  const results = await rerankClient.rerank(query, documents, this.config.maxDocuments);
+
+  // Mapper les résultats aux chunks originaux
+  return this.mapRerankResults(results, chunks);
+}
+```
+
+#### 8.10.6 Configuration
+
+```typescript
+// src/application/services/rag/types.ts
+
+export interface RAGConfig {
+  maxDocuments: number; // Nombre final de docs (défaut: 3)
+  maxDistance: number; // Distance max pour recherche vectorielle (défaut: 0.8)
+  useReranking: boolean; // Activer le reranking (défaut: true)
+  rerankCandidates: number; // Candidats avant reranking (défaut: 10)
+}
+
+export const DEFAULT_RAG_CONFIG: RAGConfig = {
+  maxDocuments: 3,
+  maxDistance: 0.8,
+  useReranking: true,
+  rerankCandidates: 10,
+};
+```
+
+**Variables d'environnement** :
+
+```bash
+# docker-compose.yml
+RERANK_SERVICE_URL=http://rerank:8001
+```
+
+#### 8.10.7 Fallback gracieux
+
+Le système est conçu pour **continuer à fonctionner** même si le service de reranking est indisponible :
+
+```
+                    Service Rerank
+                         │
+            ┌────────────┴────────────┐
+            │                         │
+        Disponible ✅            Indisponible ❌
+            │                         │
+     Cross-encoder            Fallback vectoriel
+     reranking                (top 3 par distance)
+            │                         │
+            └────────────┬────────────┘
+                         │
+                  Contexte enrichi
+                         │
+                      Mistral
+```
+
+**Comportement en cas d'erreur** :
+
+| Situation           | Comportement       | Log                               |
+| ------------------- | ------------------ | --------------------------------- |
+| Service non démarré | Fallback vectoriel | `⚠️ Rerank service not available` |
+| Timeout             | Fallback vectoriel | `Rerank service timeout`          |
+| Erreur 500          | Fallback vectoriel | `Reranking failed, falling back`  |
+| Service OK          | Reranking normal   | `🔄 Reranked 10 → 3 chunks`       |
+
+#### 8.10.8 Scores et similarité
+
+Le cross-encoder retourne des **scores bruts** (logits) qu'on convertit en pourcentage :
+
+```typescript
+// Score cross-encoder : entre -10 et +10 typiquement
+// On applique une sigmoid pour normaliser en 0-100%
+
+function rerankScoreToSimilarity(score: number): number {
+  const normalized = 1 / (1 + Math.exp(-score)); // Sigmoid
+  return Math.round(normalized * 100);
+}
+
+// Exemples :
+// score = 5.0  → 99%  (très pertinent)
+// score = 0.0  → 50%  (neutre)
+// score = -5.0 → 1%   (pas pertinent)
+```
+
+**Différence avec la distance cosinus** :
+
+| Métrique         | Interprétation             | Origine          |
+| ---------------- | -------------------------- | ---------------- |
+| Distance cosinus | 0 = identique, 2 = opposé  | Embeddings       |
+| Score reranking  | Plus haut = plus pertinent | Cross-encoder    |
+| Similarité %     | Plus haut = plus pertinent | Notre conversion |
+
+#### 8.10.9 Performance et latence
+
+| Étape                           | Latence typique | Impact       |
+| ------------------------------- | --------------- | ------------ |
+| Recherche vectorielle (10 docs) | ~10-50ms        | Minimal      |
+| Appel HTTP au service rerank    | ~5ms            | Réseau local |
+| Cross-encoder (10 paires)       | ~50-100ms       | Principal    |
+| **Total avec reranking**        | **~70-150ms**   | Acceptable   |
+| Sans reranking                  | ~15-50ms        | Plus rapide  |
+
+**Optimisations possibles** :
+
+1. **Batching** : Grouper plusieurs requêtes de reranking
+2. **GPU** : Utiliser CUDA pour accélérer le modèle
+3. **Modèle plus léger** : `bge-reranker-small` si latence critique
+4. **Cache** : Mettre en cache les résultats de reranking
+
+#### 8.10.11 Docker et déploiement
+
+```yaml
+# docker-compose.yml
+
+services:
+  rerank:
+    image: ia-project-rerank:latest
+    build:
+      context: ./rerank-service
+      dockerfile: Dockerfile
+    ports:
+      - '8001:8001'
+    environment:
+      - RERANK_MODEL=BAAI/bge-reranker-base
+      - DEFAULT_TOP_K=3
+    volumes:
+      - rerank_cache:/root/.cache # Cache du modèle HuggingFace
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8001/health']
+      interval: 30s
+      start_period: 60s # Temps pour charger le modèle
+```
+
+**Commandes utiles** :
+
+```bash
+# Construire l'image (télécharge le modèle)
+docker build --network=host -t ia-project-rerank ./rerank-service
+
+# Démarrer le service
+docker compose up -d rerank
+
+# Vérifier la santé
+curl http://localhost:8001/health
+# {"status":"healthy","model":"BAAI/bge-reranker-base","model_loaded":true}
+
+# Tester le reranking
+curl -X POST http://localhost:8001/rerank \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mot de passe wifi",
+    "documents": [
+      {"id": 1, "content": "Les horaires sont 8h-20h"},
+      {"id": 2, "content": "Le mot de passe WiFi est Secret123"}
+    ],
+    "top_k": 2
+  }'
+# {"results":[{"id":2,"score":0.99,...},{"id":1,"score":0.01,...}]}
+```
+
+#### 8.10.12 Points clés à retenir
+
+| Concept                         | Explication                                  |
+| ------------------------------- | -------------------------------------------- |
+| **Bi-Encoder vs Cross-Encoder** | Embeddings séparés vs analyse conjointe      |
+| **Two-stage retrieval**         | Recherche large puis reranking précis        |
+| **Fallback gracieux**           | Le système fonctionne sans reranking         |
+| **Microservice**                | Isolation du modèle ML dans un service dédié |
+| **Score → Similarité**          | Sigmoid pour normaliser les logits           |
+| **Cache de disponibilité**      | Évite les appels répétés à /health           |
+
 ---
 
 ## 9. Architecture Clean Architecture
@@ -1018,16 +1423,25 @@ src/
 │   │   ├── ConversationRepository.ts  # Implémente IConversationRepository
 │   │   └── DocumentRepository.ts      # Implémente IDocumentRepository
 │   ├── external/
-│   │   └── mistral/
-│   │       ├── MistralClient.ts       # Implémente IMistralClient
-│   │       ├── tokenizer.ts
+│   │   ├── mistral/
+│   │   │   ├── MistralClient.ts       # Implémente IMistralClient
+│   │   │   ├── tokenizer.ts
+│   │   │   └── errors.ts
+│   │   └── rerank/
+│   │       ├── RerankClient.ts        # Client HTTP pour le service Python
+│   │       ├── types.ts
 │   │       └── errors.ts
 │   ├── common/
 │   │   └── retry.ts                   # Exponential backoff
 │   └── config/
 │       └── prisma.ts
 │
-└── server.ts                        # Point d'entrée
+├── server.ts                        # Point d'entrée
+│
+rerank-service/                      # 🐍 SERVICE PYTHON (microservice ML)
+├── main.py                          # FastAPI + CrossEncoder
+├── requirements.txt                 # Dépendances Python
+└── Dockerfile                       # Image Docker
 ```
 
 ### 9.3 Responsabilités par couche
@@ -1204,6 +1618,9 @@ async function sendMessage(content) {
 | **Exponential Backoff**  | withRetry()                  | Résilience aux erreurs API             |
 | **Sliding Window**       | tokenizer.ts                 | Gérer les limites de contexte          |
 | **RAG**                  | RAGService                   | Enrichir le LLM avec des docs privés   |
+| **Two-Stage Retrieval**  | RAGService + RerankClient    | Recherche large → reranking précis     |
+| **Fallback gracieux**    | RerankClient.isAvailable()   | Continuer si service indisponible      |
+| **Microservice**         | rerank-service (Python)      | Isoler le modèle ML du backend Node.js |
 
 ### 11.2 Bonnes pratiques
 
@@ -1225,6 +1642,9 @@ async function sendMessage(content) {
 | Erreurs silencieuses     | Classes d'erreurs typées       |
 | Longs documents          | Chunking avant embedding       |
 | Résultats non pertinents | Filtrer par maxDistance        |
+| Résultats mal classés    | Reranking avec cross-encoder   |
+| Service rerank down      | Fallback vers recherche vector |
+| Latence reranking        | Limiter les candidats (10 max) |
 
 ### 11.4 Commandes utiles
 
@@ -1253,6 +1673,25 @@ docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT id, LEFT(con
 
 # Voir les migrations appliquées
 docker compose exec postgres psql -U postgres -d ia_chat -c "SELECT * FROM _migrations;"
+
+# === Service de Reranking ===
+
+# Construire l'image (télécharge le modèle ~280MB)
+docker build --network=host -t ia-project-rerank ./rerank-service
+
+# Démarrer le service
+docker compose up -d rerank
+
+# Vérifier la santé du service
+curl http://localhost:8001/health
+
+# Logs du service rerank
+docker compose logs rerank --tail=20
+
+# Tester le reranking manuellement
+curl -X POST http://localhost:8001/rerank \
+  -H "Content-Type: application/json" \
+  -d '{"query": "test", "documents": [{"id": 1, "content": "doc"}], "top_k": 1}'
 ```
 
 ### 11.5 Système de migrations SQL
@@ -1381,6 +1820,23 @@ export const documentFixtures: DocumentFixture[] = [
 - [ ] Je comprends le chunking avec overlap et pourquoi c'est mieux que sans
 - [ ] Je sais calculer le step : `step = chunkSize - overlap`
 - [ ] Je connais les algorithmes de recherche vectorielle (Force brute, IVFFlat, HNSW)
+
+### Reranking
+
+- [ ] Je comprends la différence entre Bi-Encoder (embeddings) et Cross-Encoder (reranking)
+- [ ] Je sais pourquoi le reranking améliore la précision vs la recherche vectorielle seule
+- [ ] Je connais le pattern "two-stage retrieval" (recherche large → reranking précis)
+- [ ] Je comprends pourquoi on utilise un service Python séparé (écosystème ML, isolation)
+- [ ] Je sais implémenter un fallback gracieux (continuer sans reranking si le service tombe)
+- [ ] Je comprends la conversion score → similarité avec la fonction sigmoid
+- [ ] Je sais configurer et déployer un service de reranking avec Docker
+
+### Microservices & Architecture distribuée
+
+- [ ] Je comprends l'intérêt d'isoler les modèles ML dans des services dédiés
+- [ ] Je sais implémenter un healthcheck pour vérifier la disponibilité d'un service
+- [ ] Je comprends le cache de disponibilité (éviter les appels répétés)
+- [ ] Je sais gérer les erreurs réseau (timeout, service indisponible)
 
 ---
 

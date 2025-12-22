@@ -80,7 +80,12 @@ export async function chat(req: Request, res: Response): Promise<void> {
 
 export async function chatStream(req: Request, res: Response): Promise<void> {
   try {
-    const { message, conversationId, useRAG = true } = req.body;
+    const {
+      message,
+      conversationId,
+      useRAG = true,
+      useReranking = true,
+    } = req.body;
 
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Message is required' });
@@ -102,6 +107,7 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
       message,
       conversationId,
       useRAG,
+      useReranking,
     })) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
