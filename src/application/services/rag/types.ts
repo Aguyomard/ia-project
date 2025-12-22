@@ -4,10 +4,10 @@ import type { IQueryRewriterService } from '../../ports/out/IQueryRewriterServic
 import type { IRerankClient } from '../../ports/out/IRerankClient.js';
 
 export interface RAGServiceDependencies {
-  documentService?: IDocumentService;
-  queryRewriterService?: IQueryRewriterService;
-  rerankClient?: IRerankClient;
-  logger?: IRAGLogger;
+  documentService: IDocumentService;
+  queryRewriterService: IQueryRewriterService;
+  rerankClient: IRerankClient;
+  logger: IRAGLogger;
   config?: Partial<RAGConfig>;
 }
 

@@ -1,6 +1,3 @@
-import { getDocumentService } from '../document/index.js';
-import { getQueryRewriterService } from '../queryRewriter/index.js';
-import { getRerankClient } from '../../../infrastructure/external/rerank/index.js';
 import {
   BASE_SYSTEM_PROMPT,
   buildRAGPrompt,
@@ -16,7 +13,6 @@ import {
   getChunkTitle,
   rerankScoreToSimilarity,
 } from './utils.js';
-import { createRAGLogger } from '../../../infrastructure/logging/index.js';
 import type { IRAGService, RAGOptions } from '../../ports/out/IRAGService.js';
 import type { IRAGLogger } from '../../ports/out/ILogger.js';
 import type { IDocumentService } from '../../ports/out/IDocumentService.js';
@@ -31,13 +27,12 @@ export class RAGService implements IRAGService {
   private readonly queryRewriterService: IQueryRewriterService;
   private readonly rerankClient: IRerankClient;
 
-  constructor(deps: RAGServiceDependencies = {}) {
+  constructor(deps: RAGServiceDependencies) {
     this.config = { ...DEFAULT_RAG_CONFIG, ...deps.config };
-    this.logger = deps.logger ?? createRAGLogger();
-    this.documentService = deps.documentService ?? getDocumentService();
-    this.queryRewriterService =
-      deps.queryRewriterService ?? getQueryRewriterService();
-    this.rerankClient = deps.rerankClient ?? getRerankClient();
+    this.logger = deps.logger;
+    this.documentService = deps.documentService;
+    this.queryRewriterService = deps.queryRewriterService;
+    this.rerankClient = deps.rerankClient;
   }
 
   async buildEnrichedPrompt(
