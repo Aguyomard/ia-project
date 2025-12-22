@@ -7,6 +7,8 @@ export interface RAGOptions {
   useReranking?: boolean;
   /** Activer la reformulation de requête (défaut: true) */
   useQueryRewrite?: boolean;
+  /** Activer la recherche hybride vector + keywords (défaut: false) */
+  useHybridSearch?: boolean;
   /** Historique de la conversation pour contexte */
   conversationHistory?: string[];
 }

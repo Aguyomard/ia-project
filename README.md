@@ -1,6 +1,6 @@
-# 🤖 Assistant IA avec RAG + Reranking
+# 🤖 Assistant IA avec RAG + Hybrid Search
 
-Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented Generation)** avec **Reranking** pour répondre aux questions en s'appuyant sur une base de documents.
+Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented Generation)** avec **Reranking** et **Hybrid Search** pour répondre aux questions en s'appuyant sur une base de documents.
 
 ## ✨ Fonctionnalités
 
@@ -8,11 +8,13 @@ Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented
 - 📚 **RAG** : Enrichissement des réponses avec des documents pertinents
 - ✏️ **Query Rewriting** : Reformulation automatique des requêtes via LLM
 - 🔄 **Reranking** : Amélioration de la pertinence avec un cross-encoder
+- 🔎 **Hybrid Search** : Combinaison recherche vectorielle + full-text (RRF)
 - 🔍 **Recherche sémantique** par embeddings vectoriels (pgvector)
 - 📄 **Gestion de documents** avec chunking automatique et overlap
 - 🗂️ **Historique des conversations** persistant
-- 🎨 **Interface moderne** Vue 3 avec toggles RAG/Rewrite/Rerank
+- 🎨 **Interface moderne** Vue 3 avec toggles RAG/Rewrite/Rerank/Hybrid
 - 📊 **Affichage des sources** utilisées pour chaque réponse
+- ✅ **Validation Zod** des entrées API
 
 ## 🏗️ Architecture
 
@@ -39,6 +41,7 @@ ia-project/
 │   │   │   ├── mistral/         # Client Mistral AI
 │   │   │   └── rerank/          # Client Rerank (cross-encoder)
 │   │   ├── http/                # API REST Express
+│   │   │   └── schemas/         # Validation Zod
 │   │   └── persistence/         # Repositories PostgreSQL
 │   ├── migrations/              # Migrations SQL (pgvector)
 │   ├── fixtures/                # Données de test
@@ -128,7 +131,7 @@ POST /api/conversations
 
 # Envoyer un message (streaming SSE)
 POST /api/chat/stream
-# Body: { message, conversationId, useRAG?: boolean, useQueryRewrite?: boolean, useReranking?: boolean }
+# Body: { message, conversationId, useRAG?, useQueryRewrite?, useReranking?, useHybridSearch? }
 
 # Récupérer les messages d'une conversation
 GET /api/conversations/:id/messages
@@ -169,12 +172,13 @@ POST http://localhost:8001/rerank
 
 1. **Ingestion** : Les documents sont découpés en chunks avec overlap
 2. **Embeddings** : Chaque chunk est vectorisé via Mistral Embeddings (1024 dims)
-3. **Stockage** : Les vecteurs sont stockés dans PostgreSQL + pgvector
-4. **Query Rewriting** : La question est reformulée par le LLM pour optimiser la recherche
-5. **Recherche** : La question réécrite est vectorisée → recherche des 10 candidats
-6. **Reranking** : Cross-encoder re-score les candidats → Top 3
-7. **Enrichissement** : Les chunks pertinents enrichissent le prompt système
-8. **Génération** : Mistral génère une réponse contextuelle
+3. **Full-Text Index** : Chaque chunk est indexé pour recherche par mots-clés (tsvector)
+4. **Stockage** : Les vecteurs et index sont stockés dans PostgreSQL + pgvector
+5. **Query Rewriting** : La question est reformulée par le LLM pour optimiser la recherche
+6. **Recherche** : Vector search OU Hybrid search (vector + keyword + RRF fusion)
+7. **Reranking** : Cross-encoder re-score les candidats → Top 3
+8. **Enrichissement** : Les chunks pertinents enrichissent le prompt système
+9. **Génération** : Mistral génère une réponse contextuelle
 
 ```
 Question utilisateur: "mdp wifi ?"
@@ -184,20 +188,25 @@ Question utilisateur: "mdp wifi ?"
    "mdp wifi ?" → "Quel est le mot de passe du réseau WiFi ?"
         │
         ▼
-   [Embedding Mistral]  ─────────────────────────────────┐
-        │                                                │
-        ▼                                                │
-   [Recherche vectorielle pgvector]                      │
-   10 candidats les plus proches                         │
-        │                                                │
-        ▼                                                │
-   [🔄 Reranking - Cross-encoder]                        │
-   bge-reranker-base re-score (query, doc)               │
-   10 → Top 3                                            │
-        │                                                │
-        ▼                                                │
-   [Prompt enrichi]                                      │
-   System + Documents + Question  ◄──────────────────────┘
+   [Embedding Mistral]
+        │
+        ├──────────────────────────────────────────┐
+        ▼                                          ▼
+   [🔍 Vector Search]                    [🔎 Keyword Search]
+   (pgvector cosinus)                    (PostgreSQL tsvector)
+        │                                          │
+        └────────────┬─────────────────────────────┘
+                     ▼
+              [RRF Fusion] (si Hybrid activé)
+              10 candidats fusionnés
+                     │
+                     ▼
+   [🔄 Reranking - Cross-encoder]
+   bge-reranker-base re-score (query, doc)
+   10 → Top 3
+        │
+        ▼
+   [Prompt enrichi] System + Documents + Question
         │
         ▼
    [🤖 Mistral AI - mistral-small-latest]
@@ -235,6 +244,23 @@ Le **Query Rewriting** optimise la recherche en reformulant les requêtes utilis
 
 Le reranking combine les deux : recherche rapide puis re-scoring précis.
 
+### Pourquoi le Hybrid Search ?
+
+La recherche vectorielle peut rater les **termes exacts** comme les codes produits ou noms propres :
+
+| Type de requête | Vector seul  | Hybrid       |
+| --------------- | ------------ | ------------ |
+| Sens/Synonymes  | ✅ Excellent | ✅ Excellent |
+| Codes (XR-7500) | ❌ Faible    | ✅ Excellent |
+| Noms propres    | ❌ Faible    | ✅ Excellent |
+| Acronymes       | ⚠️ Variable  | ✅ Excellent |
+
+**Hybrid Search** combine :
+
+- **Recherche vectorielle** : Trouve les documents sémantiquement similaires
+- **Recherche full-text** : Trouve les correspondances exactes de mots-clés
+- **Fusion RRF** : Combine les deux rankings sans biais de score
+
 ## 🧪 Tests
 
 Le backend utilise **Vitest** pour les tests unitaires.
@@ -250,7 +276,7 @@ docker compose exec app pnpm --filter backend test:watch
 docker compose exec app pnpm --filter backend test:coverage
 ```
 
-### Tests disponibles (61 tests)
+### Tests disponibles (90 tests)
 
 - **Document UseCases** : CRUD documents, chunking, recherche
 - **Conversation UseCases** : Création, envoi de messages, streaming
@@ -297,6 +323,7 @@ pnpm build            # Build production
 | PostgreSQL        | Base de données                  |
 | pgvector          | Extension vecteurs + similarité  |
 | Prisma            | ORM                              |
+| Zod               | Validation des entrées API       |
 | Vitest            | Tests unitaires                  |
 
 ### Rerank Service (Python)
@@ -336,27 +363,29 @@ PORT=3000
 
 ## 🎛️ Options du Chat
 
-L'interface de chat propose trois toggles :
+L'interface de chat propose quatre toggles :
 
 | Option      | Icône | Description                                      |
 | ----------- | ----- | ------------------------------------------------ |
 | **RAG**     | 📚    | Active la recherche dans la base de documents    |
 | **Rewrite** | ✏️    | Reformule la requête pour optimiser la recherche |
 | **Rerank**  | 🔄    | Active le reranking pour améliorer la pertinence |
+| **Hybrid**  | 🔎    | Combine recherche vectorielle + mots-clés (RRF)  |
 
 ```
-┌─────────────────────────────────────────────┐
-│  ☑ 📚 RAG    ☑ ✏️ Rewrite    ☑ 🔄 Rerank   │
-│  ┌───────────────────────────────────────┐ │
-│  │ Écris ton message...                  │ │
-│  └───────────────────────────────────────┘ │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  ☑ 📚 RAG   ☑ ✏️ Rewrite   ☑ 🔄 Rerank   ☑ 🔎 Hybrid   │
+│  ┌────────────────────────────────────────────────────┐ │
+│  │ Écris ton message...                               │ │
+│  └────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────┘
 ```
 
 - **RAG désactivé** : Le chatbot utilise uniquement ses connaissances générales
 - **RAG seul** : Recherche vectorielle simple (rapide)
 - **RAG + Rewrite** : Reformulation + recherche vectorielle
 - **RAG + Rewrite + Rerank** : Pipeline complet (plus précis)
+- **RAG + Hybrid** : Combine vector + keywords (idéal pour codes produits, noms propres)
 
 ## 🤝 Contribution
 

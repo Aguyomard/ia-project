@@ -4,6 +4,7 @@ import type {
   Document,
   Chunk,
   ChunkWithDistance,
+  ChunkWithRank,
   DocumentWithChunks,
   SearchOptions,
 } from '../../../domain/document/index.js';
@@ -113,6 +114,13 @@ export class DocumentService implements IDocumentService {
     options: SearchOptions = {}
   ): Promise<ChunkWithDistance[]> {
     return this.repository.searchSimilarChunks(embedding, options);
+  }
+
+  async searchByKeywords(
+    query: string,
+    limit?: number
+  ): Promise<ChunkWithRank[]> {
+    return this.repository.searchByKeywords(query, limit);
   }
 }
 

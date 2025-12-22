@@ -35,6 +35,8 @@ export interface StreamMessageInput {
   useReranking?: boolean;
   /** Utiliser la reformulation de requête (défaut: true) */
   useQueryRewrite?: boolean;
+  /** Utiliser la recherche hybride vector + keywords (défaut: false) */
+  useHybridSearch?: boolean;
 }
 
 export interface StreamMessageSource {

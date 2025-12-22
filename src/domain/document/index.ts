@@ -24,4 +24,5 @@ export type {
   CreateDocumentInput,
   CreateChunkInput,
   SearchOptions,
+  ChunkWithRank,
 } from './repositories/IDocumentRepository.js';

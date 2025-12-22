@@ -2,6 +2,7 @@ import type {
   Document,
   Chunk,
   ChunkWithDistance,
+  ChunkWithRank,
   DocumentWithChunks,
   SearchOptions,
 } from '../../../domain/document/index.js';
@@ -36,4 +37,8 @@ export interface IDocumentService {
     embedding: number[],
     options?: SearchOptions
   ): Promise<ChunkWithDistance[]>;
+  searchByKeywords(
+    query: string,
+    limit?: number
+  ): Promise<ChunkWithRank[]>;
 }

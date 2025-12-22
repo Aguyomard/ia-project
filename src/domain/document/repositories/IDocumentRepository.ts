@@ -36,6 +36,18 @@ export interface SearchOptions {
 }
 
 /**
+ * Résultat de recherche full-text avec score BM25
+ */
+export interface ChunkWithRank {
+  id: number;
+  documentId: number;
+  documentTitle: string | null;
+  content: string;
+  chunkIndex: number;
+  rank: number;
+}
+
+/**
  * Interface du repository Document (Port)
  */
 export interface IDocumentRepository {
@@ -78,4 +90,10 @@ export interface IDocumentRepository {
     queryEmbedding: number[],
     options?: SearchOptions
   ): Promise<ChunkWithDistance[]>;
+
+  /** Recherche full-text par mots-clés */
+  searchByKeywords(
+    query: string,
+    limit?: number
+  ): Promise<ChunkWithRank[]>;
 }

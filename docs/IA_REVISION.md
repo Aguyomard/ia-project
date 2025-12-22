@@ -15,9 +15,10 @@
 7. [Embeddings et Recherche Vectorielle](#7-embeddings-et-recherche-vectorielle)
 8. [RAG - Retrieval-Augmented Generation](#8-rag---retrieval-augmented-generation)
 9. [Query Rewriting - Reformulation de requêtes](#9-query-rewriting---reformulation-de-requêtes)
-10. [Architecture Clean Architecture](#10-architecture-clean-architecture)
-11. [Frontend Vue.js](#11-frontend-vuejs)
-12. [Concepts clés à retenir](#12-concepts-clés-à-retenir)
+10. [Hybrid Search - Recherche hybride](#10-hybrid-search---recherche-hybride)
+11. [Architecture Clean Architecture](#11-architecture-clean-architecture)
+12. [Frontend Vue.js](#12-frontend-vuejs)
+13. [Concepts clés à retenir](#13-concepts-clés-à-retenir)
 
 ---
 
@@ -1555,11 +1556,559 @@ L'interface de chat propose un toggle ✏️ **Rewrite** :
 
 ---
 
-## 10. Architecture Clean Architecture
+## 10. Hybrid Search - Recherche hybride
+
+### 10.1 Le problème avec la recherche vectorielle seule
+
+La recherche vectorielle (embeddings + distance cosinus) est excellente pour trouver des documents **sémantiquement similaires**, mais elle a des limites :
+
+| Type de requête    | Exemple                       | Recherche vectorielle |
+| ------------------ | ----------------------------- | --------------------- |
+| **Concepts**       | "Comment fonctionne Docker ?" | ✅ Excellent          |
+| **Synonymes**      | "conteneurs" vs "containers"  | ✅ Bon                |
+| **Codes produits** | "XR-7500"                     | ❌ Peut rater         |
+| **Noms propres**   | "Jean Dupont"                 | ❌ Peut rater         |
+| **Acronymes**      | "FAQ", "API"                  | ⚠️ Variable           |
+| **Mots exacts**    | "erreur 404"                  | ⚠️ Variable           |
+
+**Pourquoi ?** Les embeddings capturent le **sens**, pas les **mots exacts**. Un code produit "XR-7500" n'a pas de sens sémantique intrinsèque.
+
+### 10.2 La solution : combiner Vector + Keyword
+
+Le **Hybrid Search** combine deux méthodes de recherche :
+
+```
+                    ┌─────────────────────┐
+                    │      Query          │
+                    │  "mot de passe XR"  │
+                    └─────────┬───────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+    ┌─────────────────┐             ┌─────────────────┐
+    │ Vector Search   │             │ Keyword Search  │
+    │ (Embeddings)    │             │ (Full-Text)     │
+    │                 │             │                 │
+    │ "sens global"   │             │ "mots exacts"   │
+    │ Trouve: pwd,    │             │ Trouve: XR-7500 │
+    │ password...     │             │ exactement      │
+    └────────┬────────┘             └────────┬────────┘
+             │                               │
+             │   Résultats par               │  Résultats par
+             │   distance cosinus            │  score BM25
+             │                               │
+             └───────────────┬───────────────┘
+                             ▼
+                   ┌─────────────────┐
+                   │  Fusion (RRF)   │
+                   │  Combine les    │
+                   │  deux rankings  │
+                   └────────┬────────┘
+                            ▼
+                   ┌─────────────────┐
+                   │ Résultats finaux│
+                   │ (best of both)  │
+                   └─────────────────┘
+```
+
+### 10.3 Full-Text Search dans PostgreSQL
+
+PostgreSQL offre un support natif puissant pour la recherche textuelle via les types `tsvector` et `tsquery`.
+
+#### 10.3.1 tsvector - Le vecteur de recherche
+
+Un `tsvector` est une représentation optimisée d'un texte pour la recherche :
+
+```sql
+SELECT to_tsvector('french', 'Le mot de passe WiFi est SuperSecret123');
+-- Résultat : 'mot':2 'pass':4 'supersecret123':6 'wifi':5
+```
+
+**Ce qui se passe** :
+
+1. **Tokenisation** : Le texte est découpé en mots
+2. **Normalisation** : Conversion en minuscules
+3. **Stemming** : Réduction aux racines (ex: "passes" → "pass")
+4. **Stop words** : Suppression des mots vides ("le", "est", "de"...)
+5. **Positions** : Chaque token garde sa position dans le texte
+
+#### 10.3.2 tsquery - La requête de recherche
+
+Une `tsquery` est une requête de recherche textuelle :
+
+```sql
+SELECT plainto_tsquery('french', 'mot de passe wifi');
+-- Résultat : 'mot' & 'pass' & 'wifi'
+
+-- Opérateurs disponibles :
+-- & : AND (tous les termes)
+-- | : OR (au moins un terme)
+-- ! : NOT (exclure un terme)
+-- <-> : FOLLOWED BY (ordre)
+```
+
+#### 10.3.3 L'opérateur @@ (matching)
+
+L'opérateur `@@` teste si un `tsvector` correspond à une `tsquery` :
+
+```sql
+SELECT 'mot':1 'pass':2 'wifi':3'::tsvector @@ 'wifi & pass'::tsquery;
+-- Résultat : true
+
+SELECT 'mot':1 'pass':2 'wifi':3'::tsvector @@ 'docker'::tsquery;
+-- Résultat : false
+```
+
+#### 10.3.4 ts_rank - Le scoring
+
+`ts_rank` calcule un score de pertinence :
+
+```sql
+SELECT ts_rank(
+  to_tsvector('french', 'Le mot de passe WiFi est SuperSecret'),
+  plainto_tsquery('french', 'mot de passe')
+) as rank;
+-- Résultat : 0.0991 (plus c'est haut, plus c'est pertinent)
+```
+
+**Facteurs de ranking** :
+
+- Fréquence des termes
+- Proximité des termes
+- Position dans le document
+- Longueur du document
+
+#### 10.3.5 Index GIN
+
+L'index **GIN** (Generalized Inverted Index) accélère drastiquement les recherches :
+
+```sql
+-- Sans index : scan séquentiel O(n)
+-- Avec index GIN : recherche O(log n)
+
+CREATE INDEX chunks_search_idx ON chunks USING GIN(search_vector);
+```
+
+**Comment ça marche ?**
+
+```
+GIN Index (inversé)
+─────────────────────
+"wifi"    → [doc_1, doc_5, doc_12]
+"passe"   → [doc_1, doc_3, doc_7]
+"docker"  → [doc_2, doc_8]
+...
+
+Requête: "wifi passe"
+→ Intersection: [doc_1] ✅
+```
+
+### 10.4 Migration SQL pour Hybrid Search
+
+```sql
+-- src/migrations/006_add_fulltext_search.sql
+
+-- 1. Ajouter la colonne tsvector
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS search_vector tsvector;
+
+-- 2. Créer l'index GIN
+CREATE INDEX IF NOT EXISTS chunks_search_idx ON chunks USING GIN(search_vector);
+
+-- 3. Peupler les chunks existants (français + anglais)
+UPDATE chunks
+SET search_vector = to_tsvector('french', content) || to_tsvector('english', content)
+WHERE search_vector IS NULL;
+
+-- 4. Trigger pour auto-update sur INSERT/UPDATE
+CREATE OR REPLACE FUNCTION update_chunks_search_vector()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.search_vector := to_tsvector('french', NEW.content)
+                    || to_tsvector('english', NEW.content);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER chunks_search_vector_trigger
+  BEFORE INSERT OR UPDATE OF content ON chunks
+  FOR EACH ROW
+  EXECUTE FUNCTION update_chunks_search_vector();
+```
+
+**Pourquoi français ET anglais ?**
+
+- Le stemming varie selon la langue
+- "documentation" en français ≠ "documentation" en anglais
+- On maximise les chances de match
+
+### 10.5 Implémentation Repository
+
+```typescript
+// src/infrastructure/persistence/DocumentRepository.ts
+
+public async searchByKeywords(
+  query: string,
+  limit = 10
+): Promise<ChunkWithRank[]> {
+  const results = await this.prisma.$queryRawUnsafe<{
+    id: number;
+    document_id: number;
+    document_title: string | null;
+    content: string;
+    chunk_index: number;
+    rank: number;
+  }[]>(
+    `SELECT c.id, c.document_id, d.title as document_title,
+            c.content, c.chunk_index,
+            ts_rank(
+              c.search_vector,
+              plainto_tsquery('french', $1) || plainto_tsquery('english', $1)
+            ) as rank
+     FROM chunks c
+     JOIN documents d ON c.document_id = d.id
+     WHERE c.search_vector @@ (
+       plainto_tsquery('french', $1) || plainto_tsquery('english', $1)
+     )
+     ORDER BY rank DESC
+     LIMIT $2`,
+    query,
+    limit
+  );
+
+  return results.map((r) => ({
+    id: Number(r.id),
+    documentId: Number(r.document_id),
+    documentTitle: r.document_title,
+    content: r.content,
+    chunkIndex: r.chunk_index,
+    rank: Number(r.rank),
+  }));
+}
+```
+
+### 10.6 RRF - Reciprocal Rank Fusion
+
+L'algorithme **RRF** (Reciprocal Rank Fusion) combine les résultats de plusieurs sources de ranking.
+
+#### 10.6.1 Le problème de la fusion
+
+Comment combiner deux rankings différents ?
+
+```
+Vector Search:          Keyword Search:
+1. Doc A (dist: 0.2)    1. Doc C (rank: 0.95)
+2. Doc B (dist: 0.3)    2. Doc A (rank: 0.80)
+3. Doc C (dist: 0.4)    3. Doc D (rank: 0.75)
+4. Doc D (dist: 0.5)    4. Doc B (rank: 0.60)
+
+Problème : Les scores ne sont pas comparables !
+- Distance cosinus : 0-2 (plus bas = mieux)
+- ts_rank : 0-1 (plus haut = mieux)
+```
+
+#### 10.6.2 La solution RRF
+
+RRF ignore les scores bruts et utilise uniquement les **positions** (rangs) :
+
+```
+Score RRF = Σ (1 / (k + rang))
+
+Où k est une constante (typiquement 60)
+```
+
+**Pourquoi k=60 ?**
+
+- k trop petit : les premiers rangs dominent trop
+- k trop grand : les différences de rang sont aplaties
+- k=60 est empiriquement un bon compromis
+
+#### 10.6.3 Exemple de calcul
+
+```
+k = 60
+
+Doc A: rang_vector=1, rang_keyword=2
+Score_A = 1/(60+1) + 1/(60+2) = 0.0164 + 0.0161 = 0.0325
+
+Doc B: rang_vector=2, rang_keyword=4
+Score_B = 1/(60+2) + 1/(60+4) = 0.0161 + 0.0156 = 0.0317
+
+Doc C: rang_vector=3, rang_keyword=1
+Score_C = 1/(60+3) + 1/(60+1) = 0.0159 + 0.0164 = 0.0323
+
+Doc D: rang_vector=4, rang_keyword=3
+Score_D = 1/(60+4) + 1/(60+3) = 0.0156 + 0.0159 = 0.0315
+
+Ranking final: A > C > B > D
+```
+
+**Observation** : Doc A gagne car il est bien classé dans LES DEUX rankings.
+
+#### 10.6.4 Implémentation
+
+```typescript
+// src/application/services/rag/HybridSearchService.ts
+
+export class HybridSearchService {
+  private readonly documentService: IDocumentService;
+  private readonly RRF_K = 60;
+
+  async search(
+    query: string,
+    options: HybridSearchOptions = {}
+  ): Promise<HybridSearchResult[]> {
+    // 1. Exécuter les deux recherches en parallèle
+    const [vectorResults, keywordResults] = await Promise.all([
+      this.documentService.searchByQuery(query, { limit: options.limit * 2 }),
+      this.documentService.searchByKeywords(query, options.limit * 2),
+    ]);
+
+    // 2. Fusionner avec RRF
+    return this.fuseWithRRF(vectorResults, keywordResults, options.limit);
+  }
+
+  private fuseWithRRF(
+    vectorResults: ChunkWithDistance[],
+    keywordResults: ChunkWithRank[],
+    limit: number
+  ): HybridSearchResult[] {
+    const scoreMap = new Map<number, HybridSearchResult>();
+
+    // Scores des résultats vectoriels
+    vectorResults.forEach((chunk, index) => {
+      const vectorRank = index + 1;
+      const rrfScore = 1 / (this.RRF_K + vectorRank);
+
+      scoreMap.set(chunk.id, {
+        id: chunk.id,
+        documentId: chunk.documentId,
+        documentTitle: chunk.documentTitle,
+        content: chunk.content,
+        vectorRank,
+        rrfScore,
+        distance: chunk.distance,
+      });
+    });
+
+    // Ajouter les scores keyword
+    keywordResults.forEach((chunk, index) => {
+      const keywordRank = index + 1;
+      const keywordScore = 1 / (this.RRF_K + keywordRank);
+
+      const existing = scoreMap.get(chunk.id);
+      if (existing) {
+        // Document trouvé par les deux méthodes → boost !
+        existing.keywordRank = keywordRank;
+        existing.rrfScore += keywordScore;
+      } else {
+        // Trouvé uniquement par keyword
+        scoreMap.set(chunk.id, {
+          id: chunk.id,
+          documentId: chunk.documentId,
+          documentTitle: chunk.documentTitle,
+          content: chunk.content,
+          keywordRank,
+          rrfScore: keywordScore,
+        });
+      }
+    });
+
+    // Trier par score RRF décroissant
+    return Array.from(scoreMap.values())
+      .sort((a, b) => b.rrfScore - a.rrfScore)
+      .slice(0, limit);
+  }
+}
+```
+
+### 10.7 Intégration dans le RAG
+
+```typescript
+// src/application/services/rag/RAGService.ts
+
+async buildEnrichedPrompt(
+  userMessage: string,
+  options: RAGOptions = {}
+): Promise<RAGContext> {
+  // Query rewriting...
+  const searchQuery = await this.rewriteQueryIfEnabled(userMessage, options);
+
+  // Hybrid Search activé ?
+  if (this.shouldUseHybridSearch(options)) {
+    return this.performHybridSearch(searchQuery, options);
+  }
+
+  // Sinon : recherche vectorielle classique
+  return this.performVectorSearch(searchQuery, options);
+}
+
+private async performHybridSearch(
+  searchQuery: string,
+  options: RAGOptions
+): Promise<RAGContext> {
+  // Recherche hybride
+  const hybridResults = await this.hybridSearchService.search(searchQuery, {
+    limit: this.config.rerankCandidates,
+    maxDistance: this.config.maxDistance,
+  });
+
+  if (hybridResults.length === 0) {
+    return this.emptyContext();
+  }
+
+  this.logger.info(`🔍 Hybrid search: ${hybridResults.length} results`);
+
+  // Convertir en ChunkWithDistance pour compatibilité
+  const chunks = this.hybridResultsToChunks(hybridResults);
+
+  // Reranking optionnel
+  if (this.shouldUseReranking(options)) {
+    const { chunks: rerankedChunks, sources } =
+      await this.rerankChunks(searchQuery, chunks);
+    return this.buildContextFromChunks(rerankedChunks, sources);
+  }
+
+  return this.buildContextFromChunks(chunks, this.buildHybridSources(hybridResults));
+}
+```
+
+### 10.8 Configuration et Toggle Frontend
+
+**Backend** :
+
+```typescript
+// RAGConfig
+export interface RAGConfig {
+  maxDocuments: number; // 3
+  maxDistance: number; // 0.8
+  useReranking: boolean; // true
+  useHybridSearch: boolean; // false (opt-in)
+  rerankCandidates: number; // 10
+}
+
+// RAGOptions (par requête)
+export interface RAGOptions {
+  useReranking?: boolean;
+  useQueryRewrite?: boolean;
+  useHybridSearch?: boolean; // ← Nouveau
+  conversationHistory?: string[];
+}
+```
+
+**Frontend** :
+
+```vue
+<div class="options-row">
+  <label class="rag-toggle">
+    <input type="checkbox" v-model="useRAG" />
+    <span>📚 RAG</span>
+  </label>
+  <label class="rag-toggle" :class="{ disabled: !useRAG }">
+    <input type="checkbox" v-model="useQueryRewrite" :disabled="!useRAG" />
+    <span>✏️ Rewrite</span>
+  </label>
+  <label class="rag-toggle" :class="{ disabled: !useRAG }">
+    <input type="checkbox" v-model="useReranking" :disabled="!useRAG" />
+    <span>🔄 Rerank</span>
+  </label>
+  <label class="rag-toggle" :class="{ disabled: !useRAG }">
+    <input type="checkbox" v-model="useHybridSearch" :disabled="!useRAG" />
+    <span>🔎 Hybrid</span>
+  </label>
+</div>
+```
+
+### 10.9 Comparaison des méthodes de recherche
+
+| Critère             | Vector seul  | Keyword seul | Hybrid       |
+| ------------------- | ------------ | ------------ | ------------ |
+| **Sens/Synonymes**  | ✅ Excellent | ❌ Aucun     | ✅ Excellent |
+| **Mots exacts**     | ⚠️ Variable  | ✅ Excellent | ✅ Excellent |
+| **Codes/Acronymes** | ❌ Faible    | ✅ Excellent | ✅ Excellent |
+| **Noms propres**    | ❌ Faible    | ✅ Excellent | ✅ Excellent |
+| **Latence**         | ~50ms        | ~20ms        | ~70ms        |
+| **Complexité**      | Moyenne      | Faible       | Haute        |
+
+### 10.10 Performance et optimisation
+
+#### Latence
+
+| Étape                 | Temps      | Optimisation                   |
+| --------------------- | ---------- | ------------------------------ |
+| Génération embedding  | ~100ms     | Cache embeddings fréquents     |
+| Recherche vectorielle | ~30ms      | Index HNSW                     |
+| Recherche full-text   | ~20ms      | Index GIN                      |
+| Fusion RRF            | ~1ms       | En mémoire                     |
+| **Total hybrid**      | **~150ms** | Parallélisation des recherches |
+
+#### Parallélisation
+
+```typescript
+// Les deux recherches sont indépendantes → Promise.all
+const [vectorResults, keywordResults] = await Promise.all([
+  this.documentService.searchByQuery(query, options),
+  this.documentService.searchByKeywords(query, limit),
+]);
+```
+
+### 10.11 Quand utiliser Hybrid Search ?
+
+**✅ Recommandé pour** :
+
+- Bases de connaissances avec codes/références techniques
+- Documents contenant des noms propres (personnes, produits)
+- Requêtes potentiellement contenant des acronymes
+- Quand la précision est plus importante que la latence
+
+**❌ Pas nécessaire pour** :
+
+- Requêtes purement conversationnelles
+- Petits corpus (<100 documents)
+- Quand la latence est critique
+- Documents homogènes sans termes techniques
+
+### 10.12 Schéma de la base de données
+
+```sql
+-- Table chunks avec support hybrid search
+CREATE TABLE chunks (
+  id BIGSERIAL PRIMARY KEY,
+  document_id BIGINT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  embedding vector(1024) NOT NULL,     -- Pour vector search
+  search_vector tsvector,               -- Pour keyword search
+  chunk_index INTEGER NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Index pour vector search (HNSW ou IVFFlat)
+CREATE INDEX chunks_embedding_idx ON chunks
+USING hnsw (embedding vector_cosine_ops);
+
+-- Index pour keyword search (GIN)
+CREATE INDEX chunks_search_idx ON chunks
+USING GIN(search_vector);
+```
+
+### 10.13 Points clés à retenir
+
+| Concept             | Explication                                             |
+| ------------------- | ------------------------------------------------------- |
+| **tsvector**        | Représentation tokenisée d'un texte pour recherche      |
+| **tsquery**         | Requête de recherche textuelle                          |
+| **GIN index**       | Index inversé pour recherche full-text rapide           |
+| **RRF**             | Algorithme de fusion basé sur les rangs, pas les scores |
+| **k=60**            | Constante RRF pour équilibrer les rangs                 |
+| **Parallélisation** | Les deux recherches sont indépendantes                  |
+| **Trigger**         | Auto-update du search_vector à l'insertion              |
+
+---
+
+## 11. Architecture Clean Architecture
 
 Le projet utilise une **Clean Architecture** (aussi appelée Hexagonal Architecture ou Ports & Adapters) pour une meilleure séparation des responsabilités et testabilité.
 
-### 9.1 Les couches
+### 11.1 Les couches
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1578,7 +2127,7 @@ Le projet utilise une **Clean Architecture** (aussi appelée Hexagonal Architect
 
 **Règle de dépendance** : Les couches internes ne connaissent pas les couches externes.
 
-### 9.2 Structure des fichiers
+### 11.2 Structure des fichiers
 
 ```
 src/
@@ -1668,7 +2217,7 @@ rerank-service/                      # 🐍 SERVICE PYTHON (microservice ML)
 └── Dockerfile                       # Image Docker
 ```
 
-### 9.3 Responsabilités par couche
+### 11.3 Responsabilités par couche
 
 | Couche             | Contient                                  | Responsabilité                                 |
 | ------------------ | ----------------------------------------- | ---------------------------------------------- |
@@ -1676,7 +2225,7 @@ rerank-service/                      # 🐍 SERVICE PYTHON (microservice ML)
 | **Application**    | Use Cases, Services, Ports                | Orchestrer les cas d'utilisation               |
 | **Infrastructure** | Controllers, Repositories, Clients API    | Implémenter les détails techniques             |
 
-### 9.4 Les Ports (Interfaces)
+### 11.4 Les Ports (Interfaces)
 
 Les **ports** définissent des contrats que l'infrastructure doit respecter :
 
@@ -1696,7 +2245,7 @@ export class MistralClient implements IMistralClient {
 
 **Avantage** : On peut remplacer `MistralClient` par un mock pour les tests !
 
-### 9.5 Les Use Cases
+### 11.5 Les Use Cases
 
 Un **Use Case** représente une action métier unique :
 
@@ -1729,7 +2278,7 @@ export class StreamMessageUseCase {
 }
 ```
 
-### 9.6 Flux d'une requête (Clean Architecture)
+### 11.6 Flux d'une requête (Clean Architecture)
 
 ```
 POST /api/chat/stream
@@ -1770,7 +2319,7 @@ POST /api/chat/stream
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.7 Avantages de cette architecture
+### 11.7 Avantages de cette architecture
 
 | Avantage           | Description                                   |
 | ------------------ | --------------------------------------------- |
@@ -1781,9 +2330,9 @@ POST /api/chat/stream
 
 ---
 
-## 11. Frontend Vue.js
+## 12. Frontend Vue.js
 
-### 10.1 Composants
+### 12.1 Composants
 
 ```
 frontend/src/
@@ -1797,7 +2346,7 @@ frontend/src/
     └── index.ts              # Vue Router
 ```
 
-### 10.2 Gestion du streaming
+### 12.2 Gestion du streaming
 
 ```vue
 <script setup>
@@ -1826,9 +2375,9 @@ async function sendMessage(content) {
 
 ---
 
-## 12. Concepts clés à retenir
+## 13. Concepts clés à retenir
 
-### 12.1 Patterns
+### 13.1 Patterns
 
 | Pattern                  | Où                           | Pourquoi                               |
 | ------------------------ | ---------------------------- | -------------------------------------- |
@@ -1844,10 +2393,13 @@ async function sendMessage(content) {
 | **RAG**                  | RAGService                   | Enrichir le LLM avec des docs privés   |
 | **Query Rewriting**      | QueryRewriterService         | Optimiser la query avant recherche     |
 | **Two-Stage Retrieval**  | RAGService + RerankClient    | Recherche large → reranking précis     |
+| **Hybrid Search**        | HybridSearchService          | Combiner vector + keyword search       |
+| **RRF (Rank Fusion)**    | HybridSearchService          | Fusionner rankings sans scores bruts   |
 | **Fallback gracieux**    | RerankClient.isAvailable()   | Continuer si service indisponible      |
 | **Microservice**         | rerank-service (Python)      | Isoler le modèle ML du backend Node.js |
+| **Zod Validation**       | schemas/\*.schema.ts         | Validation typée et réutilisable       |
 
-### 12.2 Bonnes pratiques
+### 13.2 Bonnes pratiques
 
 1. **Séparation des responsabilités** : Routes → Controllers → Services
 2. **Typage fort** : Interfaces TypeScript partout
@@ -1856,7 +2408,7 @@ async function sendMessage(content) {
 5. **Logging** : Console.log pour debug, avec préfixes `[ServiceName]`
 6. **Paramètres SQL** : Toujours utiliser `$1, $2` au lieu de concaténation
 
-### 12.3 Points de vigilance
+### 13.3 Points de vigilance
 
 | Problème                 | Solution                       |
 | ------------------------ | ------------------------------ |
@@ -1871,8 +2423,10 @@ async function sendMessage(content) {
 | Résultats mal classés    | Reranking avec cross-encoder   |
 | Service rerank down      | Fallback vers recherche vector |
 | Latence reranking        | Limiter les candidats (10 max) |
+| Codes/noms non trouvés   | Hybrid Search (vector+keyword) |
+| Validation manuelle      | Schémas Zod centralisés        |
 
-### 12.4 Commandes utiles
+### 13.4 Commandes utiles
 
 ```bash
 # Générer le client Prisma
@@ -1918,9 +2472,24 @@ docker compose logs rerank --tail=20
 curl -X POST http://localhost:8001/rerank \
   -H "Content-Type: application/json" \
   -d '{"query": "test", "documents": [{"id": 1, "content": "doc"}], "top_k": 1}'
+
+# === Hybrid Search (Full-Text) ===
+
+# Vérifier la colonne search_vector
+docker compose exec postgres psql -U postgres -d ia_chat -c \
+  "SELECT id, LEFT(content, 30), search_vector IS NOT NULL as has_fts FROM chunks LIMIT 5;"
+
+# Tester la recherche full-text
+docker compose exec postgres psql -U postgres -d ia_chat -c \
+  "SELECT id, ts_rank(search_vector, plainto_tsquery('french', 'wifi')) as rank
+   FROM chunks WHERE search_vector @@ plainto_tsquery('french', 'wifi');"
+
+# Vérifier l'index GIN
+docker compose exec postgres psql -U postgres -d ia_chat -c \
+  "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'chunks';"
 ```
 
-### 12.5 Système de migrations SQL
+### 13.5 Système de migrations SQL
 
 Prisma ne supporte pas le type `vector` de pgvector, donc on utilise un système de migrations SQL personnalisé :
 
@@ -1947,7 +2516,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS my_column TEXT;
 
 Puis exécuter : `docker compose exec app sh -c "cd /app/src && pnpm migrate"`
 
-### 12.6 Fixtures et Seeding
+### 13.6 Fixtures et Seeding
 
 Pour tester l'application avec des données réalistes :
 
@@ -2064,6 +2633,26 @@ export const documentFixtures: DocumentFixture[] = [
 - [ ] Je comprends le cache de disponibilité (éviter les appels répétés)
 - [ ] Je sais gérer les erreurs réseau (timeout, service indisponible)
 
+### Hybrid Search
+
+- [ ] Je comprends la différence entre recherche vectorielle et recherche par mots-clés
+- [ ] Je sais quand utiliser Hybrid Search (codes produits, noms propres, acronymes)
+- [ ] Je comprends ce qu'est un `tsvector` et un `tsquery` dans PostgreSQL
+- [ ] Je sais créer un index GIN pour accélérer la recherche full-text
+- [ ] Je comprends l'algorithme RRF (Reciprocal Rank Fusion)
+- [ ] Je sais pourquoi RRF utilise les rangs et non les scores bruts
+- [ ] Je comprends le rôle de la constante k=60 dans RRF
+- [ ] Je sais paralléliser les recherches vectorielle et keyword avec Promise.all
+- [ ] Je peux créer un trigger PostgreSQL pour auto-update de colonnes
+
+### Validation (Zod)
+
+- [ ] Je comprends les avantages de Zod vs validation manuelle
+- [ ] Je sais créer des schémas de validation avec Zod
+- [ ] Je comprends l'inférence de types avec `z.infer<typeof Schema>`
+- [ ] Je sais utiliser `.refine()` pour des validations cross-field
+- [ ] Je peux créer des helpers de validation réutilisables
+
 ---
 
-_Document mis à jour le 21/12/2024_
+_Document mis à jour le 22/12/2024_

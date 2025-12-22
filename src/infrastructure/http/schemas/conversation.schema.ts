@@ -15,6 +15,7 @@ export const ChatStreamSchema = z.object({
   useRAG: z.boolean().optional().default(true),
   useReranking: z.boolean().optional().default(true),
   useQueryRewrite: z.boolean().optional().default(true),
+  useHybridSearch: z.boolean().optional().default(true),
 });
 
 export const ConversationIdParamSchema = z.object({

@@ -2,11 +2,13 @@ import type { IRAGLogger } from '../../ports/out/ILogger.js';
 import type { IDocumentService } from '../../ports/out/IDocumentService.js';
 import type { IQueryRewriterService } from '../../ports/out/IQueryRewriterService.js';
 import type { IRerankClient } from '../../ports/out/IRerankClient.js';
+import type { HybridSearchService } from './HybridSearchService.js';
 
 export interface RAGServiceDependencies {
   documentService: IDocumentService;
   queryRewriterService: IQueryRewriterService;
   rerankClient: IRerankClient;
+  hybridSearchService: HybridSearchService;
   logger: IRAGLogger;
   config?: Partial<RAGConfig>;
 }
@@ -31,6 +33,7 @@ export interface RAGConfig {
   maxDocuments: number;
   maxDistance: number;
   useReranking: boolean;
+  useHybridSearch: boolean;
   rerankCandidates: number;
 }
 
@@ -38,6 +41,7 @@ export const DEFAULT_RAG_CONFIG: RAGConfig = {
   maxDocuments: 3,
   maxDistance: 0.8,
   useReranking: true,
+  useHybridSearch: true,
   rerankCandidates: 10,
 };
 
@@ -58,3 +62,29 @@ export interface ChunksWithSources<T = unknown> {
   chunks: T[];
   sources: RAGSource[];
 }
+
+// === Hybrid Search ===
+
+export interface HybridSearchResult {
+  id: number;
+  documentId: number;
+  documentTitle: string | null;
+  content: string;
+  chunkIndex: number;
+  vectorRank?: number;
+  keywordRank?: number;
+  rrfScore: number;
+  distance?: number;
+}
+
+export interface HybridSearchOptions {
+  limit?: number;
+  maxDistance?: number;
+  vectorWeight?: number;
+  keywordWeight?: number;
+  rrfK?: number;
+}
+
+export const DEFAULT_RRF_K = 60;
+export const DEFAULT_VECTOR_WEIGHT = 1.0;
+export const DEFAULT_KEYWORD_WEIGHT = 1.0;

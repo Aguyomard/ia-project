@@ -27,6 +27,7 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
       useRAG = true,
       useReranking = true,
       useQueryRewrite = true,
+      useHybridSearch = true,
     } = input;
     const { conversationService, mistralClient, ragService } = this.deps;
 
@@ -49,6 +50,7 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
       const ragContext = await ragService.buildEnrichedPrompt(message, {
         useReranking,
         useQueryRewrite,
+        useHybridSearch,
         conversationHistory,
       });
 

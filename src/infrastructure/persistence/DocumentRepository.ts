@@ -3,6 +3,7 @@ import type {
   Document,
   Chunk,
   ChunkWithDistance,
+  ChunkWithRank,
   DocumentWithChunks,
   IDocumentRepository,
   CreateDocumentInput,
@@ -308,6 +309,45 @@ export class DocumentRepository implements IDocumentRepository {
       }));
     } catch (error) {
       throw new DatabaseError('Failed to search chunks', error);
+    }
+  }
+
+  public async searchByKeywords(
+    query: string,
+    limit = 10
+  ): Promise<ChunkWithRank[]> {
+    try {
+      const results = await this.prisma.$queryRawUnsafe<
+        {
+          id: number | bigint;
+          document_id: number;
+          document_title: string | null;
+          content: string;
+          chunk_index: number;
+          rank: number;
+        }[]
+      >(
+        `SELECT c.id, c.document_id, d.title as document_title, c.content, c.chunk_index,
+                ts_rank(c.search_vector, plainto_tsquery('french', $1) || plainto_tsquery('english', $1)) as rank
+         FROM chunks c
+         JOIN documents d ON c.document_id = d.id
+         WHERE c.search_vector @@ (plainto_tsquery('french', $1) || plainto_tsquery('english', $1))
+         ORDER BY rank DESC
+         LIMIT $2`,
+        query,
+        limit
+      );
+
+      return results.map((r) => ({
+        id: Number(r.id),
+        documentId: Number(r.document_id),
+        documentTitle: r.document_title,
+        content: r.content,
+        chunkIndex: r.chunk_index,
+        rank: Number(r.rank),
+      }));
+    } catch (error) {
+      throw new DatabaseError('Failed to keyword search chunks', error);
     }
   }
 }

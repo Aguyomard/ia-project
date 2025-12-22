@@ -38,6 +38,11 @@
             <span class="toggle-icon">🔄</span>
             <span class="toggle-label">Rerank</span>
           </label>
+          <label class="rag-toggle" :class="{ disabled: !useRAG }">
+            <input type="checkbox" v-model="useHybridSearch" :disabled="!useRAG" />
+            <span class="toggle-icon">🔎</span>
+            <span class="toggle-label">Hybrid</span>
+          </label>
         </div>
         <ChatInput
           placeholder="Écris ton message..."
@@ -79,6 +84,7 @@ const messagesContainer = ref<HTMLElement | null>(null);
 const useRAG = ref(true);
 const useQueryRewrite = ref(true);
 const useReranking = ref(true);
+const useHybridSearch = ref(true);
 
 function formatTime(date: Date): string {
   return date.toLocaleTimeString('fr-FR', {
@@ -153,6 +159,7 @@ async function sendMessage(content: string) {
         useRAG: useRAG.value,
         useQueryRewrite: useRAG.value && useQueryRewrite.value,
         useReranking: useRAG.value && useReranking.value,
+        useHybridSearch: useRAG.value && useHybridSearch.value,
       }),
     });
 

@@ -13,6 +13,10 @@ import {
   getChunkTitle,
   rerankScoreToSimilarity,
 } from './utils.js';
+import type {
+  HybridSearchService,
+  HybridSearchResult,
+} from './HybridSearchService.js';
 import type { IRAGService, RAGOptions } from '../../ports/out/IRAGService.js';
 import type { IRAGLogger } from '../../ports/out/ILogger.js';
 import type { IDocumentService } from '../../ports/out/IDocumentService.js';
@@ -26,6 +30,7 @@ export class RAGService implements IRAGService {
   private readonly documentService: IDocumentService;
   private readonly queryRewriterService: IQueryRewriterService;
   private readonly rerankClient: IRerankClient;
+  private readonly hybridSearchService: HybridSearchService;
 
   constructor(deps: RAGServiceDependencies) {
     this.config = { ...DEFAULT_RAG_CONFIG, ...deps.config };
@@ -33,6 +38,7 @@ export class RAGService implements IRAGService {
     this.documentService = deps.documentService;
     this.queryRewriterService = deps.queryRewriterService;
     this.rerankClient = deps.rerankClient;
+    this.hybridSearchService = deps.hybridSearchService;
   }
 
   async buildEnrichedPrompt(
@@ -49,6 +55,11 @@ export class RAGService implements IRAGService {
         userMessage,
         options
       );
+
+      const shouldUseHybrid = this.shouldUseHybridSearch(options);
+      if (shouldUseHybrid) {
+        return this.performHybridSearch(searchQuery, options);
+      }
 
       const shouldRerank = this.shouldUseReranking(options);
       const candidates = await this.searchCandidates(searchQuery, shouldRerank);
@@ -98,6 +109,75 @@ export class RAGService implements IRAGService {
       (options.useReranking ?? this.config.useReranking) &&
       this.rerankClient.isConfigured()
     );
+  }
+
+  private shouldUseHybridSearch(options: RAGOptions): boolean {
+    return options.useHybridSearch ?? this.config.useHybridSearch;
+  }
+
+  private async performHybridSearch(
+    searchQuery: string,
+    options: RAGOptions
+  ): Promise<RAGContext> {
+    const shouldRerank = this.shouldUseReranking(options);
+    const searchLimit = shouldRerank
+      ? this.config.rerankCandidates
+      : this.config.maxDocuments;
+
+    const hybridResults = await this.hybridSearchService.search(searchQuery, {
+      limit: searchLimit,
+      maxDistance: this.config.maxDistance,
+    });
+
+    if (hybridResults.length === 0) {
+      return this.emptyContext();
+    }
+
+    this.logger.info(`🔍 Hybrid search: ${hybridResults.length} results`);
+
+    const chunks = this.hybridResultsToChunks(hybridResults);
+
+    if (shouldRerank) {
+      const { chunks: rerankedChunks, sources } = await this.rerankChunks(
+        searchQuery,
+        chunks
+      );
+      if (rerankedChunks.length === 0) {
+        return this.emptyContext();
+      }
+      return this.buildContextFromChunks(rerankedChunks, sources);
+    }
+
+    const sources = this.buildHybridSources(hybridResults);
+    const limitedChunks = chunks.slice(0, this.config.maxDocuments);
+    const limitedSources = sources.slice(0, this.config.maxDocuments);
+
+    return this.buildContextFromChunks(limitedChunks, limitedSources);
+  }
+
+  private hybridResultsToChunks(
+    results: HybridSearchResult[]
+  ): ChunkWithDistance[] {
+    return results.map((r) => ({
+      id: r.id,
+      documentId: r.documentId,
+      documentTitle: r.documentTitle,
+      content: r.content,
+      embedding: [],
+      chunkIndex: r.chunkIndex,
+      distance: r.distance ?? 0,
+    }));
+  }
+
+  private buildHybridSources(results: HybridSearchResult[]): RAGSource[] {
+    return results.map((r) => {
+      const rrfPercent = Math.round(r.rrfScore * 3000);
+      return {
+        title: r.documentTitle || `Document #${r.documentId}`,
+        similarity: Math.min(rrfPercent, 100),
+        distance: r.distance ?? 0,
+      };
+    });
   }
 
   private async searchCandidates(

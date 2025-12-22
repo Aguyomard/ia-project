@@ -160,6 +160,7 @@ describe('StreamMessageUseCase', () => {
       {
         useReranking: true,
         useQueryRewrite: true,
+        useHybridSearch: true,
         conversationHistory: ['Hello'],
       }
     );
@@ -252,6 +253,7 @@ describe('StreamMessageUseCase', () => {
       {
         useReranking: true,
         useQueryRewrite: true,
+        useHybridSearch: true,
         conversationHistory: ['Hello'],
       }
     );
@@ -275,6 +277,7 @@ describe('StreamMessageUseCase', () => {
       {
         useReranking: true,
         useQueryRewrite: false,
+        useHybridSearch: true,
         conversationHistory: ['Hello'],
       }
     );
@@ -314,6 +317,67 @@ describe('StreamMessageUseCase', () => {
     expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
       'Follow up question',
       expect.objectContaining({ conversationHistory: ['Hello'] })
+    );
+  });
+
+  it('should pass useHybridSearch=true when enabled', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question with hybrid',
+      useRAG: true,
+      useHybridSearch: true,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question with hybrid',
+      {
+        useReranking: true,
+        useQueryRewrite: true,
+        useHybridSearch: true,
+        conversationHistory: ['Hello'],
+      }
+    );
+  });
+
+  it('should pass useHybridSearch=true by default', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question with hybrid by default',
+      useRAG: true,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question with hybrid by default',
+      expect.objectContaining({ useHybridSearch: true })
+    );
+  });
+
+  it('should pass useHybridSearch=false when explicitly disabled', async () => {
+    const input = {
+      conversationId: 'conv-123',
+      message: 'Question without hybrid',
+      useRAG: true,
+      useHybridSearch: false,
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for await (const _ of useCase.execute(input)) {
+      // consume generator
+    }
+
+    expect(mockRAGService.buildEnrichedPrompt).toHaveBeenCalledWith(
+      'Question without hybrid',
+      expect.objectContaining({ useHybridSearch: false })
     );
   });
 });
