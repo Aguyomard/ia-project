@@ -1,9 +1,6 @@
 import { getDocumentService } from '../document/index.js';
 import { getQueryRewriterService } from '../queryRewriter/index.js';
-import {
-  getRerankClient,
-  isRerankConfigured,
-} from '../../../infrastructure/external/rerank/index.js';
+import { getRerankClient } from '../../../infrastructure/external/rerank/index.js';
 import {
   BASE_SYSTEM_PROMPT,
   buildRAGPrompt,
@@ -48,26 +45,22 @@ export class RAGService implements IRAGService {
     options: RAGOptions = {}
   ): Promise<RAGContext> {
     try {
-      // Vérifier qu'il y a des documents
       const chunkCount = await this.documentService.countChunks();
       if (chunkCount === 0) {
         return this.emptyContext();
       }
 
-      // Étape 1: Query Rewriting
       const searchQuery = await this.rewriteQueryIfEnabled(
         userMessage,
         options
       );
 
-      // Étape 2: Recherche vectorielle
       const shouldRerank = this.shouldUseReranking(options);
       const candidates = await this.searchCandidates(searchQuery, shouldRerank);
       if (candidates.length === 0) {
         return this.emptyContext();
       }
 
-      // Étape 3: Reranking ou fallback
       const { chunks, sources } = await this.processChunks(
         searchQuery,
         candidates,
@@ -77,7 +70,6 @@ export class RAGService implements IRAGService {
         return this.emptyContext();
       }
 
-      // Étape 4: Construire le prompt enrichi
       return this.buildContextFromChunks(chunks, sources);
     } catch (error) {
       this.logger.error('RAG search failed, using base prompt:', error);
@@ -85,9 +77,6 @@ export class RAGService implements IRAGService {
     }
   }
 
-  /**
-   * Reformule la requête si l'option est activée
-   */
   private async rewriteQueryIfEnabled(
     userMessage: string,
     options: RAGOptions
@@ -109,18 +98,13 @@ export class RAGService implements IRAGService {
     }
   }
 
-  /**
-   * Détermine si le reranking doit être utilisé
-   */
   private shouldUseReranking(options: RAGOptions): boolean {
     return (
-      (options.useReranking ?? this.config.useReranking) && isRerankConfigured()
+      (options.useReranking ?? this.config.useReranking) &&
+      this.rerankClient.isConfigured()
     );
   }
 
-  /**
-   * Recherche les candidats via recherche vectorielle
-   */
   private async searchCandidates(
     searchQuery: string,
     shouldRerank: boolean
@@ -135,9 +119,6 @@ export class RAGService implements IRAGService {
     });
   }
 
-  /**
-   * Traite les chunks : reranking si activé, sinon fallback vectoriel
-   */
   private async processChunks(
     searchQuery: string,
     candidates: ChunkWithDistance[],
@@ -149,9 +130,6 @@ export class RAGService implements IRAGService {
     return this.fallbackToVectorSearch(candidates);
   }
 
-  /**
-   * Construit le contexte RAG à partir des chunks sélectionnés
-   */
   private buildContextFromChunks(
     chunks: ChunkWithDistance[],
     sources: RAGSource[]
@@ -175,15 +153,11 @@ export class RAGService implements IRAGService {
     };
   }
 
-  /**
-   * Rerank les chunks avec le cross-encoder
-   */
   private async rerankChunks(
     query: string,
     chunks: ChunkWithDistance[]
   ): Promise<ChunksWithSources<ChunkWithDistance>> {
     try {
-      // Vérifier si le service est disponible
       const available = await this.rerankClient.isAvailable();
       if (!available) {
         this.logger.warn(
@@ -192,20 +166,17 @@ export class RAGService implements IRAGService {
         return this.fallbackToVectorSearch(chunks);
       }
 
-      // Préparer les documents pour le reranking
       const documents = chunks.map((chunk) => ({
         id: chunk.id,
         content: chunk.content,
       }));
 
-      // Appeler le service de reranking
       const results = await this.rerankClient.rerank(
         query,
         documents,
         this.config.maxDocuments
       );
 
-      // Mapper les résultats aux chunks originaux
       const rerankedChunks: ChunkWithDistance[] = [];
       const sources: RAGSource[] = [];
 
@@ -233,9 +204,6 @@ export class RAGService implements IRAGService {
     }
   }
 
-  /**
-   * Fallback vers la recherche vectorielle simple
-   */
   private fallbackToVectorSearch(
     chunks: ChunkWithDistance[]
   ): ChunksWithSources<ChunkWithDistance> {
@@ -248,9 +216,6 @@ export class RAGService implements IRAGService {
     return { chunks: limitedChunks, sources };
   }
 
-  /**
-   * Retourne un contexte vide
-   */
   private emptyContext(): RAGContext {
     return {
       enrichedPrompt: BASE_SYSTEM_PROMPT,

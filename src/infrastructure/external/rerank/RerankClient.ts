@@ -15,15 +15,6 @@ import type { IRerankClient } from '../../../application/ports/out/IRerankClient
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_TOP_K = 3;
 
-/**
- * Client pour le service de reranking (cross-encoder)
- *
- * @example
- * ```ts
- * const client = getRerankClient();
- * const results = await client.rerank('question', documents, 3);
- * ```
- */
 export class RerankClient implements IRerankClient {
   private readonly serviceUrl: string;
   private readonly timeout: number;
@@ -44,9 +35,10 @@ export class RerankClient implements IRerankClient {
     this.defaultTopK = config.defaultTopK ?? DEFAULT_TOP_K;
   }
 
-  /**
-   * Vérifie si le service de reranking est disponible
-   */
+  isConfigured(): boolean {
+    return !!this.serviceUrl;
+  }
+
   async isAvailable(): Promise<boolean> {
     if (this.available !== null) {
       return this.available;
@@ -72,14 +64,6 @@ export class RerankClient implements IRerankClient {
     }
   }
 
-  /**
-   * Rerank les documents par rapport à la requête
-   *
-   * @param query - La question/requête de l'utilisateur
-   * @param documents - Les documents à reranker
-   * @param topK - Nombre de résultats à retourner
-   * @returns Les documents rerankés triés par pertinence
-   */
   async rerank(
     query: string,
     documents: RerankDocument[],
@@ -94,14 +78,8 @@ export class RerankClient implements IRerankClient {
     try {
       const response = await fetch(`${this.serviceUrl}/rerank`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query,
-          documents,
-          top_k: effectiveTopK,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, documents, top_k: effectiveTopK }),
         signal: AbortSignal.timeout(this.timeout),
       });
 
@@ -132,21 +110,13 @@ export class RerankClient implements IRerankClient {
     }
   }
 
-  /**
-   * Réinitialise le cache de disponibilité
-   */
   resetAvailability(): void {
     this.available = null;
   }
 }
 
-// === Singleton ===
-
 let instance: RerankClient | null = null;
 
-/**
- * Obtient l'instance singleton du client de reranking
- */
 export function getRerankClient(): RerankClient {
   if (!instance) {
     instance = new RerankClient();
@@ -154,19 +124,10 @@ export function getRerankClient(): RerankClient {
   return instance;
 }
 
-/**
- * Réinitialise l'instance singleton (pour les tests)
- */
 export function resetRerankClient(): void {
   instance = null;
 }
 
-/**
- * Vérifie si le service de reranking est configuré
- */
 export function isRerankConfigured(): boolean {
   return !!process.env.RERANK_SERVICE_URL;
 }
-
-
-

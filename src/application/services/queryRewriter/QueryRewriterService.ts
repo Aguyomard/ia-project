@@ -31,16 +31,11 @@ export class QueryRewriterService implements IQueryRewriterService {
     query: string,
     conversationContext: string[] = []
   ): Promise<QueryRewriteResult> {
-    // Skip if disabled or query too short
     if (
       !this.config.enabled ||
       query.trim().length < this.config.minQueryLength
     ) {
-      return {
-        originalQuery: query,
-        rewrittenQuery: query,
-        wasRewritten: false,
-      };
+      return this.fallbackResult(query);
     }
 
     try {
@@ -58,19 +53,13 @@ export class QueryRewriterService implements IQueryRewriterService {
         return this.fallbackResult(query);
       }
 
-      // Clean the response (remove quotes, trim)
       const cleanedQuery = rewrittenQuery
         .trim()
         .replace(/^["'«]|["'»]$/g, '')
         .trim();
 
-      // If LLM returned empty or same query, don't consider it rewritten
       if (!cleanedQuery || cleanedQuery.toLowerCase() === query.toLowerCase()) {
-        return {
-          originalQuery: query,
-          rewrittenQuery: query,
-          wasRewritten: false,
-        };
+        return this.fallbackResult(query);
       }
 
       console.log(`✏️ Query rewrite: "${query}" → "${cleanedQuery}"`);

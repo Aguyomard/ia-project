@@ -39,10 +39,8 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
     const chatHistory =
       await conversationService.getChatHistory(conversationId);
 
-    // Appliquer le RAG uniquement si activé
     let sources: StreamMessageSource[] = [];
     if (useRAG) {
-      // Extraire les messages utilisateur récents pour le contexte de réécriture
       const conversationHistory = chatHistory
         .filter((m) => m.role === 'user')
         .map((m) => m.content)
@@ -53,9 +51,11 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
         useQueryRewrite,
         conversationHistory,
       });
+
       if (chatHistory.length > 0 && chatHistory[0].role === 'system') {
         chatHistory[0].content = ragContext.enrichedPrompt;
       }
+
       sources = ragContext.sources.map((s) => ({
         title: s.title,
         similarity: s.similarity,

@@ -1,8 +1,3 @@
-/**
- * Implémentation console du logger RAG
- * Infrastructure layer - implémente l'interface IRAGLogger
- */
-
 import type { IRAGLogger } from '../../application/ports/out/ILogger.js';
 
 const LOG_PREFIX = {
@@ -13,9 +8,6 @@ const LOG_PREFIX = {
   rewrite: '✏️',
 } as const;
 
-/**
- * Logger RAG silencieux (pour les tests)
- */
 export class SilentRAGLogger implements IRAGLogger {
   info(): void {}
   warn(): void {}
@@ -25,9 +17,6 @@ export class SilentRAGLogger implements IRAGLogger {
   rewrite(): void {}
 }
 
-/**
- * Logger RAG avec sortie console
- */
 export class ConsoleRAGLogger implements IRAGLogger {
   info(message: string): void {
     console.log(`${LOG_PREFIX.info} ${message}`);
@@ -55,4 +44,3 @@ export class ConsoleRAGLogger implements IRAGLogger {
     );
   }
 }
-
