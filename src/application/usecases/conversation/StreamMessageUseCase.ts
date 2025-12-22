@@ -4,20 +4,16 @@ import type {
   StreamMessageChunk,
   StreamMessageSource,
 } from '../../ports/in/conversation.js';
-import type { IConversationService } from '../../ports/out/IConversationService.js';
-import type { IMistralClient } from '../../ports/out/IMistralClient.js';
-import type { IRAGService } from '../../ports/out/IRAGService.js';
+import {
+  MAX_CONVERSATION_HISTORY_FOR_REWRITE,
+  type StreamMessageDependencies,
+} from './types.js';
 import { getConversationService } from '../../services/conversation/index.js';
 import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
 import { getRAGService } from '../../services/rag/index.js';
 
 export type { StreamMessageInput, StreamMessageChunk, StreamMessageSource };
-
-export interface StreamMessageDependencies {
-  conversationService: IConversationService;
-  mistralClient: IMistralClient;
-  ragService: IRAGService;
-}
+export type { StreamMessageDependencies } from './types.js';
 
 export class StreamMessageUseCase implements IStreamMessageUseCase {
   constructor(private readonly deps: StreamMessageDependencies) {}
@@ -50,7 +46,7 @@ export class StreamMessageUseCase implements IStreamMessageUseCase {
       const conversationHistory = chatHistory
         .filter((m) => m.role === 'user')
         .map((m) => m.content)
-        .slice(-3);
+        .slice(-MAX_CONVERSATION_HISTORY_FOR_REWRITE);
 
       const ragContext = await ragService.buildEnrichedPrompt(message, {
         useReranking,

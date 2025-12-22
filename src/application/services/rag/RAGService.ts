@@ -6,37 +6,41 @@ import {
 } from '../../../infrastructure/external/rerank/index.js';
 import {
   BASE_SYSTEM_PROMPT,
+  buildRAGPrompt,
   DEFAULT_RAG_CONFIG,
+  type ChunksWithSources,
   type RAGConfig,
   type RAGContext,
+  type RAGServiceDependencies,
   type RAGSource,
 } from './types.js';
+import {
+  distanceToSimilarity,
+  getChunkTitle,
+  rerankScoreToSimilarity,
+} from './utils.js';
+import { createRAGLogger } from '../../../infrastructure/logging/index.js';
 import type { IRAGService, RAGOptions } from '../../ports/out/IRAGService.js';
+import type { IRAGLogger } from '../../ports/out/ILogger.js';
+import type { IDocumentService } from '../../ports/out/IDocumentService.js';
+import type { IQueryRewriterService } from '../../ports/out/IQueryRewriterService.js';
+import type { IRerankClient } from '../../ports/out/IRerankClient.js';
 import type { ChunkWithDistance } from '../../../domain/document/index.js';
 
-/**
- * Convertit une distance cosinus (0-2) en pourcentage de similarité (0-100%)
- * Distance 0 = 100% similaire, Distance 1 = 50%, Distance 2 = 0%
- */
-function distanceToSimilarity(distance: number): number {
-  return Math.round((1 - distance / 2) * 100);
-}
-
-/**
- * Convertit un score de reranking (-∞ à +∞) en pourcentage (0-100%)
- * Les scores sont normalement entre -10 et +10
- */
-function rerankScoreToSimilarity(score: number): number {
-  // Sigmoid pour normaliser entre 0 et 1, puis en pourcentage
-  const normalized = 1 / (1 + Math.exp(-score));
-  return Math.round(normalized * 100);
-}
-
 export class RAGService implements IRAGService {
-  private config: RAGConfig;
+  private readonly config: RAGConfig;
+  private readonly logger: IRAGLogger;
+  private readonly documentService: IDocumentService;
+  private readonly queryRewriterService: IQueryRewriterService;
+  private readonly rerankClient: IRerankClient;
 
-  constructor(config: Partial<RAGConfig> = {}) {
-    this.config = { ...DEFAULT_RAG_CONFIG, ...config };
+  constructor(deps: RAGServiceDependencies = {}) {
+    this.config = { ...DEFAULT_RAG_CONFIG, ...deps.config };
+    this.logger = deps.logger ?? createRAGLogger();
+    this.documentService = deps.documentService ?? getDocumentService();
+    this.queryRewriterService =
+      deps.queryRewriterService ?? getQueryRewriterService();
+    this.rerankClient = deps.rerankClient ?? getRerankClient();
   }
 
   async buildEnrichedPrompt(
@@ -44,104 +48,131 @@ export class RAGService implements IRAGService {
     options: RAGOptions = {}
   ): Promise<RAGContext> {
     try {
-      const documentService = getDocumentService();
-      const chunkCount = await documentService.countChunks();
-
+      // Vérifier qu'il y a des documents
+      const chunkCount = await this.documentService.countChunks();
       if (chunkCount === 0) {
         return this.emptyContext();
       }
 
-      // Étape 0: Query Rewriting (si activé)
-      const shouldRewrite = options.useQueryRewrite ?? true;
-      let searchQuery = userMessage;
+      // Étape 1: Query Rewriting
+      const searchQuery = await this.rewriteQueryIfEnabled(
+        userMessage,
+        options
+      );
 
-      if (shouldRewrite) {
-        try {
-          const queryRewriter = getQueryRewriterService();
-          const rewriteResult = await queryRewriter.rewrite(
-            userMessage,
-            options.conversationHistory ?? []
-          );
-          searchQuery = rewriteResult.rewrittenQuery;
-        } catch (error) {
-          console.warn('⚠️ Query rewrite failed, using original query:', error);
-        }
-      }
-
-      // Déterminer si le reranking est activé (option > config)
-      const shouldRerank =
-        (options.useReranking ?? this.config.useReranking) &&
-        isRerankConfigured();
-
-      // Étape 1: Recherche vectorielle (large net)
-      const searchLimit = shouldRerank
-        ? this.config.rerankCandidates
-        : this.config.maxDocuments;
-
-      const candidates = await documentService.searchByQuery(searchQuery, {
-        limit: searchLimit,
-        maxDistance: this.config.maxDistance,
-      });
-
+      // Étape 2: Recherche vectorielle
+      const shouldRerank = this.shouldUseReranking(options);
+      const candidates = await this.searchCandidates(searchQuery, shouldRerank);
       if (candidates.length === 0) {
         return this.emptyContext();
       }
 
-      // Étape 2: Reranking si activé et disponible
-      let finalChunks: ChunkWithDistance[];
-      let sources: RAGSource[];
-
-      if (shouldRerank) {
-        // Utiliser la query réécrite pour le reranking également
-        const reranked = await this.rerankChunks(searchQuery, candidates);
-        finalChunks = reranked.chunks;
-        sources = reranked.sources;
-      } else {
-        // Fallback: utiliser les résultats vectoriels directement
-        finalChunks = candidates.slice(0, this.config.maxDocuments);
-        sources = finalChunks.map((chunk) => ({
-          title: chunk.documentTitle || `Document #${chunk.documentId}`,
-          similarity: distanceToSimilarity(chunk.distance),
-          distance: chunk.distance,
-        }));
-      }
-
-      if (finalChunks.length === 0) {
+      // Étape 3: Reranking ou fallback
+      const { chunks, sources } = await this.processChunks(
+        searchQuery,
+        candidates,
+        shouldRerank
+      );
+      if (chunks.length === 0) {
         return this.emptyContext();
       }
 
-      // Construire le contexte
-      const context = finalChunks
-        .map((chunk, i) => `[Document ${i + 1}]\n${chunk.content}`)
-        .join('\n\n---\n\n');
-
-      const distances = finalChunks.map((c) => c.distance);
-
-      const enrichedPrompt = `${BASE_SYSTEM_PROMPT}
-
-Tu as accès aux documents suivants pour t'aider à répondre :
-
-${context}
-
-Instructions :
-- Utilise ces documents pour répondre si pertinent
-- Si l'information n'est pas dans les documents, utilise tes connaissances générales
-- Ne mentionne pas explicitement "selon les documents" sauf si l'utilisateur le demande`;
-
-      console.log(
-        `📚 RAG: ${finalChunks.length} sources (${sources.map((s) => `${s.title}: ${s.similarity}%`).join(', ')})`
-      );
-
-      return {
-        enrichedPrompt,
-        documentsFound: finalChunks.length,
-        distances,
-        sources,
-      };
+      // Étape 4: Construire le prompt enrichi
+      return this.buildContextFromChunks(chunks, sources);
     } catch (error) {
-      console.error('RAG search failed, using base prompt:', error);
+      this.logger.error('RAG search failed, using base prompt:', error);
       return this.emptyContext();
     }
+  }
+
+  /**
+   * Reformule la requête si l'option est activée
+   */
+  private async rewriteQueryIfEnabled(
+    userMessage: string,
+    options: RAGOptions
+  ): Promise<string> {
+    const shouldRewrite = options.useQueryRewrite ?? true;
+    if (!shouldRewrite) {
+      return userMessage;
+    }
+
+    try {
+      const rewriteResult = await this.queryRewriterService.rewrite(
+        userMessage,
+        options.conversationHistory ?? []
+      );
+      return rewriteResult.rewrittenQuery;
+    } catch (error) {
+      this.logger.warn(`Query rewrite failed, using original query: ${error}`);
+      return userMessage;
+    }
+  }
+
+  /**
+   * Détermine si le reranking doit être utilisé
+   */
+  private shouldUseReranking(options: RAGOptions): boolean {
+    return (
+      (options.useReranking ?? this.config.useReranking) && isRerankConfigured()
+    );
+  }
+
+  /**
+   * Recherche les candidats via recherche vectorielle
+   */
+  private async searchCandidates(
+    searchQuery: string,
+    shouldRerank: boolean
+  ): Promise<ChunkWithDistance[]> {
+    const searchLimit = shouldRerank
+      ? this.config.rerankCandidates
+      : this.config.maxDocuments;
+
+    return this.documentService.searchByQuery(searchQuery, {
+      limit: searchLimit,
+      maxDistance: this.config.maxDistance,
+    });
+  }
+
+  /**
+   * Traite les chunks : reranking si activé, sinon fallback vectoriel
+   */
+  private async processChunks(
+    searchQuery: string,
+    candidates: ChunkWithDistance[],
+    shouldRerank: boolean
+  ): Promise<ChunksWithSources<ChunkWithDistance>> {
+    if (shouldRerank) {
+      return this.rerankChunks(searchQuery, candidates);
+    }
+    return this.fallbackToVectorSearch(candidates);
+  }
+
+  /**
+   * Construit le contexte RAG à partir des chunks sélectionnés
+   */
+  private buildContextFromChunks(
+    chunks: ChunkWithDistance[],
+    sources: RAGSource[]
+  ): RAGContext {
+    const context = chunks
+      .map((chunk, i) => `[Document ${i + 1}]\n${chunk.content}`)
+      .join('\n\n---\n\n');
+
+    const enrichedPrompt = buildRAGPrompt(context);
+
+    this.logger.sources(
+      chunks.length,
+      sources.map((s) => `${s.title}: ${s.similarity}%`).join(', ')
+    );
+
+    return {
+      enrichedPrompt,
+      documentsFound: chunks.length,
+      distances: chunks.map((c) => c.distance),
+      sources,
+    };
   }
 
   /**
@@ -150,15 +181,13 @@ Instructions :
   private async rerankChunks(
     query: string,
     chunks: ChunkWithDistance[]
-  ): Promise<{ chunks: ChunkWithDistance[]; sources: RAGSource[] }> {
+  ): Promise<ChunksWithSources<ChunkWithDistance>> {
     try {
-      const rerankClient = getRerankClient();
-
       // Vérifier si le service est disponible
-      const available = await rerankClient.isAvailable();
+      const available = await this.rerankClient.isAvailable();
       if (!available) {
-        console.warn(
-          '⚠️ Rerank service not available, using vector search only'
+        this.logger.warn(
+          'Rerank service not available, using vector search only'
         );
         return this.fallbackToVectorSearch(chunks);
       }
@@ -170,7 +199,7 @@ Instructions :
       }));
 
       // Appeler le service de reranking
-      const results = await rerankClient.rerank(
+      const results = await this.rerankClient.rerank(
         query,
         documents,
         this.config.maxDocuments
@@ -185,22 +214,21 @@ Instructions :
         if (originalChunk) {
           rerankedChunks.push(originalChunk);
           sources.push({
-            title:
-              originalChunk.documentTitle ||
-              `Document #${originalChunk.documentId}`,
+            title: getChunkTitle(originalChunk),
             similarity: rerankScoreToSimilarity(result.score),
             distance: originalChunk.distance,
           });
         }
       }
 
-      console.log(
-        `🔄 Reranked ${chunks.length} → ${rerankedChunks.length} chunks`
-      );
+      this.logger.rerank(chunks.length, rerankedChunks.length);
 
       return { chunks: rerankedChunks, sources };
     } catch (error) {
-      console.error('Reranking failed, falling back to vector search:', error);
+      this.logger.error(
+        'Reranking failed, falling back to vector search',
+        error
+      );
       return this.fallbackToVectorSearch(chunks);
     }
   }
@@ -208,13 +236,12 @@ Instructions :
   /**
    * Fallback vers la recherche vectorielle simple
    */
-  private fallbackToVectorSearch(chunks: ChunkWithDistance[]): {
-    chunks: ChunkWithDistance[];
-    sources: RAGSource[];
-  } {
+  private fallbackToVectorSearch(
+    chunks: ChunkWithDistance[]
+  ): ChunksWithSources<ChunkWithDistance> {
     const limitedChunks = chunks.slice(0, this.config.maxDocuments);
     const sources = limitedChunks.map((chunk) => ({
-      title: chunk.documentTitle || `Document #${chunk.documentId}`,
+      title: getChunkTitle(chunk),
       similarity: distanceToSimilarity(chunk.distance),
       distance: chunk.distance,
     }));

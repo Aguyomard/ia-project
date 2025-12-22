@@ -3,20 +3,13 @@ import type {
   SendMessageInput,
   SendMessageOutput,
 } from '../../ports/in/conversation.js';
-import type { IConversationService } from '../../ports/out/IConversationService.js';
-import type { IMistralClient } from '../../ports/out/IMistralClient.js';
-import type { IRAGService } from '../../ports/out/IRAGService.js';
+import type { SendMessageDependencies } from './types.js';
 import { getConversationService } from '../../services/conversation/index.js';
 import { getMistralClient } from '../../../infrastructure/external/mistral/index.js';
 import { getRAGService } from '../../services/rag/index.js';
 
 export type { SendMessageInput, SendMessageOutput };
-
-export interface SendMessageDependencies {
-  conversationService: IConversationService;
-  mistralClient: IMistralClient;
-  ragService: IRAGService;
-}
+export type { SendMessageDependencies } from './types.js';
 
 export class SendMessageUseCase implements ISendMessageUseCase {
   constructor(private readonly deps: SendMessageDependencies) {}

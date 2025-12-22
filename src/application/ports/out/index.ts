@@ -15,3 +15,4 @@ export type {
   IQueryRewriterService,
   QueryRewriteResult,
 } from './IQueryRewriterService.js';
+export type { ILogger, IRAGLogger } from './ILogger.js';
