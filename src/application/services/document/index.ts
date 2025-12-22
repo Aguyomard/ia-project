@@ -4,6 +4,8 @@ export {
   resetDocumentService,
 } from './DocumentService.js';
 
+export type { DocumentServiceDependencies } from './types.js';
+
 export type {
   Document,
   ChunkWithDistance,

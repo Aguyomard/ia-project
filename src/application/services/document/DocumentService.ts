@@ -12,18 +12,23 @@ import type {
   IDocumentService,
   CreateDocumentInput,
 } from '../../ports/out/IDocumentService.js';
+import type { DocumentServiceDependencies } from './types.js';
 
 export class DocumentService implements IDocumentService {
-  // === Documents ===
+  private readonly repository;
+  private readonly mistralClient;
+
+  constructor(deps: DocumentServiceDependencies) {
+    this.repository = deps.repository;
+    this.mistralClient = deps.mistralClient;
+  }
 
   async createDocument(input: CreateDocumentInput): Promise<Document> {
-    const repository = getDocumentRepository();
-    return repository.createDocument(input);
+    return this.repository.createDocument(input);
   }
 
   async getDocument(id: number): Promise<Document> {
-    const repository = getDocumentRepository();
-    const document = await repository.findDocumentById(id);
+    const document = await this.repository.findDocumentById(id);
     if (!document) {
       throw new Error(`Document not found: ${id}`);
     }
@@ -31,8 +36,7 @@ export class DocumentService implements IDocumentService {
   }
 
   async getDocumentWithChunks(id: number): Promise<DocumentWithChunks> {
-    const repository = getDocumentRepository();
-    const document = await repository.findDocumentWithChunks(id);
+    const document = await this.repository.findDocumentWithChunks(id);
     if (!document) {
       throw new Error(`Document not found: ${id}`);
     }
@@ -40,21 +44,16 @@ export class DocumentService implements IDocumentService {
   }
 
   async listDocuments(limit = 100, offset = 0): Promise<Document[]> {
-    const repository = getDocumentRepository();
-    return repository.findAllDocuments(limit, offset);
+    return this.repository.findAllDocuments(limit, offset);
   }
 
   async countDocuments(): Promise<number> {
-    const repository = getDocumentRepository();
-    return repository.countDocuments();
+    return this.repository.countDocuments();
   }
 
   async deleteDocument(id: number): Promise<boolean> {
-    const repository = getDocumentRepository();
-    return repository.deleteDocument(id);
+    return this.repository.deleteDocument(id);
   }
-
-  // === Chunks ===
 
   async addChunksToDocument(
     documentId: number,
@@ -64,11 +63,9 @@ export class DocumentService implements IDocumentService {
       return [];
     }
 
-    // Générer les embeddings en batch
     let embeddings: number[][];
     try {
-      const mistral = getMistralClient();
-      embeddings = await mistral.generateEmbeddings(contents);
+      embeddings = await this.mistralClient.generateEmbeddings(contents);
     } catch (error) {
       throw new EmbeddingGenerationError(
         'Failed to generate embeddings',
@@ -76,12 +73,9 @@ export class DocumentService implements IDocumentService {
       );
     }
 
-    // Créer les chunks
-    const repository = getDocumentRepository();
     const chunks: Chunk[] = [];
-
     for (let i = 0; i < contents.length; i++) {
-      const chunk = await repository.createChunk({
+      const chunk = await this.repository.createChunk({
         documentId,
         content: contents[i],
         embedding: embeddings[i],
@@ -94,11 +88,8 @@ export class DocumentService implements IDocumentService {
   }
 
   async countChunks(): Promise<number> {
-    const repository = getDocumentRepository();
-    return repository.countChunks();
+    return this.repository.countChunks();
   }
-
-  // === Search ===
 
   async searchByQuery(
     query: string,
@@ -106,8 +97,7 @@ export class DocumentService implements IDocumentService {
   ): Promise<ChunkWithDistance[]> {
     let queryEmbedding: number[];
     try {
-      const mistral = getMistralClient();
-      queryEmbedding = await mistral.generateEmbedding(query);
+      queryEmbedding = await this.mistralClient.generateEmbedding(query);
     } catch (error) {
       throw new EmbeddingGenerationError(
         'Failed to generate query embedding',
@@ -122,8 +112,7 @@ export class DocumentService implements IDocumentService {
     embedding: number[],
     options: SearchOptions = {}
   ): Promise<ChunkWithDistance[]> {
-    const repository = getDocumentRepository();
-    return repository.searchSimilarChunks(embedding, options);
+    return this.repository.searchSimilarChunks(embedding, options);
   }
 }
 
@@ -131,7 +120,10 @@ let instance: DocumentService | null = null;
 
 export function getDocumentService(): DocumentService {
   if (!instance) {
-    instance = new DocumentService();
+    instance = new DocumentService({
+      repository: getDocumentRepository(),
+      mistralClient: getMistralClient(),
+    });
   }
   return instance;
 }
@@ -139,5 +131,3 @@ export function getDocumentService(): DocumentService {
 export function resetDocumentService(): void {
   instance = null;
 }
-
-export default DocumentService;

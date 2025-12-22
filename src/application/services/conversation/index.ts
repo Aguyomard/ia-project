@@ -4,6 +4,8 @@ export {
   resetConversationService,
 } from './ConversationService.js';
 
+export type { ConversationServiceDependencies } from './types.js';
+
 export type {
   Conversation,
   ConversationWithMessages,
