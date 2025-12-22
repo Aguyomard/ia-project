@@ -1,9 +1,9 @@
-import { Router } from 'express';
+import { Router, type IRouter } from 'express';
 import conversationRoutes from './conversationRoutes.js';
 import documentRoutes from './documentRoutes.js';
 import aiRoutes from './aiRoutes.js';
 
-const router = Router();
+const router: IRouter = Router();
 
 // API routes
 router.use('/api', conversationRoutes);

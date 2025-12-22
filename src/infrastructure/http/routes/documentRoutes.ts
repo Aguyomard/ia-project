@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type IRouter } from 'express';
 import {
   addDocument,
   addDocumentWithChunking,
@@ -8,7 +8,7 @@ import {
   searchDocuments,
 } from '../controllers/documentController.js';
 
-const router = Router();
+const router: IRouter = Router();
 
 // CRUD Documents
 router.post('/documents', addDocument);

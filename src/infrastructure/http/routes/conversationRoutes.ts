@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type IRouter } from 'express';
 import {
   createConversation,
   listConversations,
@@ -7,7 +7,7 @@ import {
   chatStream,
 } from '../controllers/conversationController.js';
 
-const router = Router();
+const router: IRouter = Router();
 
 // Conversations
 router.post('/conversations', createConversation);

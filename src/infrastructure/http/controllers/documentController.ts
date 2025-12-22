@@ -9,26 +9,23 @@ import {
   type ChunkInfo,
 } from '../../../application/usecases/index.js';
 import type { Chunk } from '../../../domain/document/index.js';
+import {
+  AddDocumentSchema,
+  AddDocumentWithChunkingSchema,
+  ListDocumentsQuerySchema,
+  DocumentIdParamSchema,
+  SearchDocumentsSchema,
+  validateBody,
+  validateQuery,
+  validateParams,
+} from '../schemas/index.js';
 
-/**
- * Crée un document simple sans chunks
- * POST /api/documents
- */
 export async function addDocument(req: Request, res: Response): Promise<void> {
   try {
-    const { content, title } = req.body;
+    const validation = validateBody(AddDocumentSchema, req.body, res);
+    if (!validation.success) return;
 
-    if (!content || typeof content !== 'string') {
-      res.status(400).json({ error: 'Content is required' });
-      return;
-    }
-
-    if (content.trim().length === 0) {
-      res.status(400).json({ error: 'Content cannot be empty' });
-      return;
-    }
-
-    const result = await addDocumentUseCase.execute({ content, title });
+    const result = await addDocumentUseCase.execute(validation.data);
     res.status(201).json(result);
   } catch (error) {
     console.error('Error adding document:', error);
@@ -36,19 +33,15 @@ export async function addDocument(req: Request, res: Response): Promise<void> {
   }
 }
 
-/**
- * Liste tous les documents
- * GET /api/documents
- */
 export async function listDocuments(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const limit = parseInt(req.query.limit as string) || undefined;
-    const offset = parseInt(req.query.offset as string) || undefined;
+    const validation = validateQuery(ListDocumentsQuerySchema, req.query, res);
+    if (!validation.success) return;
 
-    const result = await listDocumentsUseCase.execute({ limit, offset });
+    const result = await listDocumentsUseCase.execute(validation.data);
     res.json(result);
   } catch (error) {
     console.error('Error listing documents:', error);
@@ -56,20 +49,12 @@ export async function listDocuments(
   }
 }
 
-/**
- * Récupère un document avec ses chunks
- * GET /api/documents/:id
- */
 export async function getDocument(req: Request, res: Response): Promise<void> {
   try {
-    const id = parseInt(req.params.id);
+    const validation = validateParams(DocumentIdParamSchema, req.params, res);
+    if (!validation.success) return;
 
-    if (isNaN(id)) {
-      res.status(400).json({ error: 'Invalid document ID' });
-      return;
-    }
-
-    const result = await getDocumentUseCase.execute({ id });
+    const result = await getDocumentUseCase.execute({ id: validation.data.id });
     res.json(result);
   } catch (error: unknown) {
     if (
@@ -87,23 +72,15 @@ export async function getDocument(req: Request, res: Response): Promise<void> {
   }
 }
 
-/**
- * Supprime un document (et ses chunks en cascade)
- * DELETE /api/documents/:id
- */
 export async function deleteDocument(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const id = parseInt(req.params.id);
+    const validation = validateParams(DocumentIdParamSchema, req.params, res);
+    if (!validation.success) return;
 
-    if (isNaN(id)) {
-      res.status(400).json({ error: 'Invalid document ID' });
-      return;
-    }
-
-    const result = await deleteDocumentUseCase.execute({ id });
+    const result = await deleteDocumentUseCase.execute({ id: validation.data.id });
 
     if (!result.success) {
       res.status(404).json({ error: 'Document not found' });
@@ -117,27 +94,15 @@ export async function deleteDocument(
   }
 }
 
-/**
- * Recherche sémantique dans les chunks
- * POST /api/documents/search
- */
 export async function searchDocuments(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const { query, limit, maxDistance } = req.body;
+    const validation = validateBody(SearchDocumentsSchema, req.body, res);
+    if (!validation.success) return;
 
-    if (!query || typeof query !== 'string') {
-      res.status(400).json({ error: 'Query is required' });
-      return;
-    }
-
-    const result = await searchDocumentsUseCase.execute({
-      query,
-      limit,
-      maxDistance,
-    });
+    const result = await searchDocumentsUseCase.execute(validation.data);
     res.json({ results: result.results });
   } catch (error) {
     console.error('Error searching documents:', error);
@@ -145,62 +110,15 @@ export async function searchDocuments(
   }
 }
 
-/**
- * Ajoute un document avec chunking automatique et overlap
- *
- * Le document est découpé en chunks avec chevauchement,
- * chaque chunk étant sauvegardé dans la table `chunks`
- * avec son propre embedding.
- *
- * POST /api/documents/chunked
- * Body: { content: string, chunkSize?: number, overlap?: number }
- */
 export async function addDocumentWithChunking(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const { content, chunkSize, overlap } = req.body;
+    const validation = validateBody(AddDocumentWithChunkingSchema, req.body, res);
+    if (!validation.success) return;
 
-    if (!content || typeof content !== 'string') {
-      res.status(400).json({ error: 'Content is required' });
-      return;
-    }
-
-    if (content.trim().length === 0) {
-      res.status(400).json({ error: 'Content cannot be empty' });
-      return;
-    }
-
-    // Validation des paramètres optionnels
-    if (chunkSize !== undefined) {
-      if (typeof chunkSize !== 'number' || chunkSize < 50) {
-        res.status(400).json({ error: 'chunkSize must be a number >= 50' });
-        return;
-      }
-    }
-
-    if (overlap !== undefined) {
-      if (typeof overlap !== 'number' || overlap < 0) {
-        res.status(400).json({ error: 'overlap must be a number >= 0' });
-        return;
-      }
-    }
-
-    if (
-      chunkSize !== undefined &&
-      overlap !== undefined &&
-      overlap >= chunkSize
-    ) {
-      res.status(400).json({ error: 'overlap must be smaller than chunkSize' });
-      return;
-    }
-
-    const result = await addDocumentWithChunkingUseCase.execute({
-      content,
-      chunkSize,
-      overlap,
-    });
+    const result = await addDocumentWithChunkingUseCase.execute(validation.data);
 
     res.status(201).json({
       message: `Document split into ${result.totalChunks} chunks`,

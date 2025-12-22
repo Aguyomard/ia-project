@@ -5,14 +5,26 @@ import {
   sendMessageUseCase,
   streamMessageUseCase,
 } from '../../../application/usecases/index.js';
+import {
+  CreateConversationSchema,
+  ChatSchema,
+  ChatStreamSchema,
+  ConversationIdParamSchema,
+  ListConversationsQuerySchema,
+  validateBody,
+  validateQuery,
+  validateParams,
+} from '../schemas/index.js';
 
 export async function createConversation(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
-    const { userId } = req.body;
-    const result = await createConversationUseCase.execute({ userId });
+    const validation = validateBody(CreateConversationSchema, req.body, res);
+    if (!validation.success) return;
+
+    const result = await createConversationUseCase.execute(validation.data);
     res.json(result);
   } catch (error) {
     console.error('Error creating conversation:', error);
@@ -25,10 +37,16 @@ export async function listConversations(
   res: Response
 ): Promise<void> {
   try {
-    const { userId } = req.query;
+    const validation = validateQuery(
+      ListConversationsQuerySchema,
+      req.query,
+      res
+    );
+    if (!validation.success) return;
+
     const conversationService = getConversationService();
     const conversations = await conversationService.listConversations(
-      userId as string | undefined
+      validation.data.userId
     );
     res.json({ conversations });
   } catch (error) {
@@ -39,9 +57,15 @@ export async function listConversations(
 
 export async function getMessages(req: Request, res: Response): Promise<void> {
   try {
-    const { id } = req.params;
+    const validation = validateParams(
+      ConversationIdParamSchema,
+      req.params,
+      res
+    );
+    if (!validation.success) return;
+
     const conversationService = getConversationService();
-    const messages = await conversationService.getMessages(id);
+    const messages = await conversationService.getMessages(validation.data.id);
     const visibleMessages = messages.filter((m) => m.role !== 'system');
     res.json({ messages: visibleMessages });
   } catch (error) {
@@ -52,22 +76,10 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
 
 export async function chat(req: Request, res: Response): Promise<void> {
   try {
-    const { message, conversationId } = req.body;
+    const validation = validateBody(ChatSchema, req.body, res);
+    if (!validation.success) return;
 
-    if (!message || typeof message !== 'string') {
-      res.status(400).json({ error: 'Message is required' });
-      return;
-    }
-
-    if (!conversationId) {
-      res.status(400).json({ error: 'conversationId is required' });
-      return;
-    }
-
-    const result = await sendMessageUseCase.execute({
-      message,
-      conversationId,
-    });
+    const result = await sendMessageUseCase.execute(validation.data);
     res.json(result);
   } catch (error) {
     console.error('Chat error:', error);
@@ -80,23 +92,8 @@ export async function chat(req: Request, res: Response): Promise<void> {
 
 export async function chatStream(req: Request, res: Response): Promise<void> {
   try {
-    const {
-      message,
-      conversationId,
-      useRAG = true,
-      useReranking = true,
-      useQueryRewrite = true,
-    } = req.body;
-
-    if (!message || typeof message !== 'string') {
-      res.status(400).json({ error: 'Message is required' });
-      return;
-    }
-
-    if (!conversationId) {
-      res.status(400).json({ error: 'conversationId is required' });
-      return;
-    }
+    const validation = validateBody(ChatStreamSchema, req.body, res);
+    if (!validation.success) return;
 
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -104,13 +101,7 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.flushHeaders();
 
-    for await (const event of streamMessageUseCase.execute({
-      message,
-      conversationId,
-      useRAG,
-      useReranking,
-      useQueryRewrite,
-    })) {
+    for await (const event of streamMessageUseCase.execute(validation.data)) {
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     }
 
