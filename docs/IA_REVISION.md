@@ -18,8 +18,9 @@
 10. [Hybrid Search - Recherche hybride](#10-hybrid-search---recherche-hybride)
 11. [Architecture Clean Architecture](#11-architecture-clean-architecture)
 12. [Logs structurés avec Pino](#12-logs-structurés-avec-pino)
-13. [Frontend Vue.js](#13-frontend-vuejs)
-14. [Concepts clés à retenir](#14-concepts-clés-à-retenir)
+13. [Rate Limiting](#13-rate-limiting)
+14. [Frontend Vue.js](#14-frontend-vuejs)
+15. [Concepts clés à retenir](#15-concepts-clés-à-retenir)
 
 ---
 
@@ -2569,9 +2570,155 @@ Dans les controllers, on utilise `req.log` qui contient déjà le `requestId` :
 
 ---
 
-## 13. Frontend Vue.js
+## 13. Rate Limiting
 
-### 13.1 Composants
+### 13.1 Pourquoi le Rate Limiting ?
+
+Le **rate limiting** protège l'API contre :
+
+| Menace | Impact | Solution |
+|--------|--------|----------|
+| **Abus** | Coûts API Mistral explosifs | Limiter les requêtes/minute |
+| **DDoS** | Serveur surchargé | Rejeter le surplus |
+| **Bots** | Spam de requêtes | Bloquer par IP |
+| **Erreurs client** | Boucles infinies | Protection automatique |
+
+### 13.2 express-rate-limit
+
+On utilise la librairie `express-rate-limit` qui gère tout automatiquement :
+
+```bash
+pnpm add express-rate-limit
+```
+
+### 13.3 Configuration des limiters
+
+```typescript
+// src/infrastructure/http/middlewares/rateLimiter.ts
+
+import rateLimit from 'express-rate-limit';
+
+// Limiter général : 100 req/min
+export const generalLimiter = rateLimit({
+  windowMs: 60 * 1000,    // Fenêtre de 1 minute
+  max: 100,               // Max 100 requêtes
+  standardHeaders: true,  // Headers RateLimit-* (standard IETF)
+  handler: (req, res) => {
+    log.warn({ ip: req.ip }, 'Rate limit exceeded');
+    res.status(429).json({ error: 'Too many requests' });
+  },
+});
+
+// Limiter strict pour le chat : 20 req/min
+export const chatLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,  // Appels Mistral coûteux → limite basse
+});
+
+// Limiter pour les documents : 10 req/min
+export const documentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,  // Upload + embeddings très coûteux
+});
+```
+
+### 13.4 Application aux routes
+
+```typescript
+// src/infrastructure/http/routes/conversationRoutes.ts
+
+import { chatLimiter, generalLimiter } from '../middlewares/index.js';
+
+// CRUD conversations (limite générale)
+router.post('/conversations', generalLimiter, createConversation);
+router.get('/conversations', generalLimiter, listConversations);
+
+// Chat (limite stricte - appels Mistral)
+router.post('/chat', chatLimiter, chat);
+router.post('/chat/stream', chatLimiter, chatStream);
+```
+
+### 13.5 Limites par endpoint
+
+| Endpoint | Limite | Fenêtre | Raison |
+|----------|--------|---------|--------|
+| `/health` | 1000 | 1 min | Monitoring, très permissif |
+| `/api/conversations/*` | 100 | 1 min | CRUD simple |
+| `/api/chat/*` | 20 | 1 min | Appels Mistral coûteux |
+| `/api/documents` (POST) | 10 | 1 min | Embeddings coûteux |
+| `/api/documents/search` | 20 | 1 min | Embedding de la query |
+
+### 13.6 Headers de réponse
+
+Chaque réponse inclut des headers informatifs :
+
+```
+RateLimit-Policy: 20;w=60       # 20 requêtes par fenêtre de 60s
+RateLimit-Limit: 20             # Limite totale
+RateLimit-Remaining: 15         # Requêtes restantes
+RateLimit-Reset: 45             # Secondes avant reset
+```
+
+### 13.7 Fonctionnement interne
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  EXPRESS-RATE-LIMIT                                                     │
+│  ───────────────────────────────────────────────────────────────────── │
+│                                                                         │
+│  Store en mémoire (par défaut) :                                        │
+│  ┌─────────────────────────────────────────────┐                       │
+│  │  IP             │ Count │ Window Start      │                       │
+│  ├─────────────────┼───────┼───────────────────┤                       │
+│  │ 192.168.1.100   │  19   │ 15:30:00          │                       │
+│  │ 192.168.1.101   │   5   │ 15:30:15          │                       │
+│  └─────────────────────────────────────────────┘                       │
+│                                                                         │
+│  À chaque requête :                                                     │
+│  1. Identifier l'IP (req.ip)                                            │
+│  2. Incrémenter le compteur                                             │
+│  3. count > max ? → 429 Too Many Requests                               │
+│  4. window expirée ? → Reset le compteur                                │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.8 Réponse en cas de dépassement
+
+```json
+{
+  "error": "Too many chat requests. Please wait before sending more messages.",
+  "retryAfter": 60
+}
+```
+
+Status code : **429 Too Many Requests**
+
+### 13.9 Stockage des compteurs
+
+| Store | Usage | Avantage | Inconvénient |
+|-------|-------|----------|--------------|
+| **Mémoire** (défaut) | Dev, single instance | Simple, rapide | Perdu au restart |
+| **Redis** | Prod, multi-instances | Partagé, persistant | Infra supplémentaire |
+
+Pour un déploiement multi-instances, configurer Redis :
+
+```typescript
+import RedisStore from 'rate-limit-redis';
+import Redis from 'ioredis';
+
+const limiter = rateLimit({
+  store: new RedisStore({
+    sendCommand: (...args) => redis.call(...args),
+  }),
+  // ...
+});
+```
+
+---
+
+## 14. Frontend Vue.js
+
+### 14.1 Composants
 
 ```
 frontend/src/
@@ -2585,7 +2732,7 @@ frontend/src/
     └── index.ts              # Vue Router
 ```
 
-### 13.2 Gestion du streaming
+### 14.2 Gestion du streaming
 
 ```vue
 <script setup>
@@ -2614,9 +2761,9 @@ async function sendMessage(content) {
 
 ---
 
-## 14. Concepts clés à retenir
+## 15. Concepts clés à retenir
 
-### 14.1 Patterns
+### 15.1 Patterns
 
 | Pattern                  | Où                           | Pourquoi                               |
 | ------------------------ | ---------------------------- | -------------------------------------- |
@@ -2641,7 +2788,7 @@ async function sendMessage(content) {
 | **Child Logger**         | logger.child({ service })    | Héritage de contexte dans les logs     |
 | **Request Tracing**      | requestId middleware         | Corréler les logs d'une requête        |
 
-### 14.2 Bonnes pratiques
+### 15.2 Bonnes pratiques
 
 1. **Séparation des responsabilités** : Routes → Controllers → Services
 2. **Typage fort** : Interfaces TypeScript partout
@@ -2651,7 +2798,7 @@ async function sendMessage(content) {
 6. **Paramètres SQL** : Toujours utiliser `$1, $2` au lieu de concaténation
 7. **Traçabilité** : RequestId sur chaque requête HTTP
 
-### 14.3 Points de vigilance
+### 15.3 Points de vigilance
 
 | Problème                 | Solution                       |
 | ------------------------ | ------------------------------ |
@@ -2672,7 +2819,7 @@ async function sendMessage(content) {
 | Pas de traçabilité       | Middleware requestId           |
 | Logs en prod illisibles  | pino-pretty en dev seulement   |
 
-### 14.4 Commandes utiles
+### 15.4 Commandes utiles
 
 ```bash
 # Générer le client Prisma
@@ -2749,7 +2896,7 @@ docker compose logs app --tail=20
 # Ajouter dans .env : NODE_ENV=development
 ```
 
-### 14.5 Système de migrations SQL
+### 15.5 Système de migrations SQL
 
 Prisma ne supporte pas le type `vector` de pgvector, donc on utilise un système de migrations SQL personnalisé :
 
@@ -2776,7 +2923,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS my_column TEXT;
 
 Puis exécuter : `docker compose exec app sh -c "cd /app/src && pnpm migrate"`
 
-### 14.6 Fixtures et Seeding
+### 15.6 Fixtures et Seeding
 
 Pour tester l'application avec des données réalistes :
 

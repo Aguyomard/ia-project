@@ -15,6 +15,8 @@ Un chatbot intelligent utilisant **Mistral AI** et le **RAG (Retrieval Augmented
 - 🎨 **Interface moderne** Vue 3 avec toggles RAG/Rewrite/Rerank/Hybrid
 - 📊 **Affichage des sources** utilisées pour chaque réponse
 - ✅ **Validation Zod** des entrées API
+- 🛡️ **Rate limiting** protection contre les abus (express-rate-limit)
+- 📝 **Logs structurés** avec Pino (JSON) et traçabilité (requestId)
 
 ## 🏗️ Architecture
 
@@ -324,6 +326,8 @@ pnpm build            # Build production
 | pgvector          | Extension vecteurs + similarité  |
 | Prisma            | ORM                              |
 | Zod               | Validation des entrées API       |
+| express-rate-limit| Protection contre les abus       |
+| Pino              | Logs structurés JSON             |
 | Vitest            | Tests unitaires                  |
 
 ### Rerank Service (Python)
