@@ -12,6 +12,9 @@ import {
   estimateTotalTokens,
 } from './tokenizer.js';
 import type { IMistralClient } from '../../../application/ports/out/IMistralClient.js';
+import { createLogger } from '../../logging/index.js';
+
+const log = createLogger('MistralClient');
 
 /**
  * Client pour interagir avec l'API Mistral AI
@@ -47,10 +50,12 @@ export class MistralClient implements IMistralClient {
       multiplier: config.retry?.multiplier ?? 2,
       maxDelay: config.retry?.maxDelay ?? 30000,
       onRetry: (attempt, delay, error) => {
-        console.warn(
-          `[MistralClient] Retry ${attempt}/${this.retryOptions.maxRetries} after ${Math.round(delay)}ms`,
-          error instanceof Error ? error.message : error
-        );
+        log.warn({
+          attempt,
+          maxRetries: this.retryOptions.maxRetries,
+          delayMs: Math.round(delay),
+          error: error instanceof Error ? error.message : String(error),
+        }, 'Retrying API call');
       },
     };
   }
@@ -118,10 +123,12 @@ export class MistralClient implements IMistralClient {
       });
     }
 
-    console.log(
-      `[MistralClient] Calling ${model} with ${processedMessages.length} messages ` +
-        `(~${estimateTotalTokens(processedMessages)} tokens, jsonMode: ${jsonMode})`
-    );
+    log.info({
+      model,
+      messageCount: processedMessages.length,
+      tokens: estimateTotalTokens(processedMessages),
+      jsonMode,
+    }, 'API call started');
 
     try {
       const response = await withRetry(
@@ -151,7 +158,7 @@ export class MistralClient implements IMistralClient {
 
       return null;
     } catch (error) {
-      console.error('[MistralClient] API call failed after retries:', error);
+      log.error({ err: error }, 'API call failed after retries');
       throw new MistralAPIError('Failed to complete chat request', error);
     }
   }
@@ -178,10 +185,12 @@ export class MistralClient implements IMistralClient {
       });
     }
 
-    console.log(
-      `[MistralClient] Streaming ${model} with ${processedMessages.length} messages ` +
-        `(~${estimateTotalTokens(processedMessages)} tokens)`
-    );
+    log.info({
+      model,
+      messageCount: processedMessages.length,
+      tokens: estimateTotalTokens(processedMessages),
+      streaming: true,
+    }, 'Stream started');
 
     try {
       const stream = await withRetry(
@@ -202,7 +211,7 @@ export class MistralClient implements IMistralClient {
         }
       }
     } catch (error) {
-      console.error('[MistralClient] Stream failed after retries:', error);
+      log.error({ err: error }, 'Stream failed after retries');
       throw new MistralAPIError('Failed to stream chat request', error);
     }
   }
@@ -244,9 +253,7 @@ export class MistralClient implements IMistralClient {
   // ============================================
 
   public async generateEmbedding(text: string): Promise<number[]> {
-    console.log(
-      `[MistralClient] Generating embedding for text (${text.length} chars)`
-    );
+    log.debug({ textLength: text.length }, 'Generating embedding');
 
     try {
       const response = await withRetry(
@@ -264,13 +271,11 @@ export class MistralClient implements IMistralClient {
         throw new MistralAPIError('No embedding returned from Mistral');
       }
 
-      console.log(
-        `[MistralClient] Embedding generated (dimension: ${embedding.length})`
-      );
+      log.debug({ dimension: embedding.length }, 'Embedding generated');
 
       return embedding;
     } catch (error) {
-      console.error('[MistralClient] Embedding generation failed:', error);
+      log.error({ err: error }, 'Embedding generation failed');
       throw new MistralAPIError('Failed to generate embedding', error);
     }
   }
@@ -280,9 +285,7 @@ export class MistralClient implements IMistralClient {
       return [];
     }
 
-    console.log(
-      `[MistralClient] Generating embeddings for ${texts.length} texts`
-    );
+    log.info({ count: texts.length }, 'Generating batch embeddings');
 
     try {
       const response = await withRetry(
@@ -307,16 +310,14 @@ export class MistralClient implements IMistralClient {
         );
       }
 
-      console.log(
-        `[MistralClient] ${embeddings.length} embeddings generated (dimension: ${embeddings[0]?.length})`
-      );
+      log.info({
+        count: embeddings.length,
+        dimension: embeddings[0]?.length,
+      }, 'Batch embeddings generated');
 
       return embeddings;
     } catch (error) {
-      console.error(
-        '[MistralClient] Batch embedding generation failed:',
-        error
-      );
+      log.error({ err: error }, 'Batch embedding generation failed');
       throw new MistralAPIError('Failed to generate embeddings', error);
     }
   }

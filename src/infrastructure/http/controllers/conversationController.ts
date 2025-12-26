@@ -27,7 +27,7 @@ export async function createConversation(
     const result = await createConversationUseCase.execute(validation.data);
     res.json(result);
   } catch (error) {
-    console.error('Error creating conversation:', error);
+    req.log?.error({ err: error }, 'Error creating conversation');
     res.status(500).json({ error: 'Failed to create conversation' });
   }
 }
@@ -50,7 +50,7 @@ export async function listConversations(
     );
     res.json({ conversations });
   } catch (error) {
-    console.error('Error listing conversations:', error);
+    req.log?.error({ err: error }, 'Error listing conversations');
     res.status(500).json({ error: 'Failed to list conversations' });
   }
 }
@@ -69,7 +69,7 @@ export async function getMessages(req: Request, res: Response): Promise<void> {
     const visibleMessages = messages.filter((m) => m.role !== 'system');
     res.json({ messages: visibleMessages });
   } catch (error) {
-    console.error('Error getting messages:', error);
+    req.log?.error({ err: error }, 'Error getting messages');
     res.status(500).json({ error: 'Failed to get messages' });
   }
 }
@@ -82,7 +82,7 @@ export async function chat(req: Request, res: Response): Promise<void> {
     const result = await sendMessageUseCase.execute(validation.data);
     res.json(result);
   } catch (error) {
-    console.error('Chat error:', error);
+    req.log?.error({ err: error }, 'Chat error');
     res.status(500).json({
       error: 'Erreur lors de la génération de la réponse',
       response: 'Désolé, une erreur est survenue. Réessaie plus tard.',
@@ -107,7 +107,7 @@ export async function chatStream(req: Request, res: Response): Promise<void> {
 
     res.end();
   } catch (error) {
-    console.error('Stream error:', error);
+    req.log?.error({ err: error }, 'Stream error');
 
     if (!res.headersSent) {
       res.status(500).json({ error: 'Erreur lors du streaming' });

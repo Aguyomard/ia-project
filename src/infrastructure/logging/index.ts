@@ -6,6 +6,10 @@
 import type { IRAGLogger } from '../../application/ports/out/ILogger.js';
 import { ConsoleRAGLogger, SilentRAGLogger } from './ConsoleRAGLogger.js';
 
+// Logger principal (Pino)
+export { logger, createLogger, createRequestLogger, type Logger } from './logger.js';
+
+// Loggers spécialisés RAG
 export { ConsoleRAGLogger, SilentRAGLogger };
 
 /**

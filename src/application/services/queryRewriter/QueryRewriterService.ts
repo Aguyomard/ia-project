@@ -4,6 +4,9 @@ import type {
   QueryRewriteResult,
 } from '../../ports/out/IQueryRewriterService.js';
 import { QueryRewriterConfig, DEFAULT_QUERY_REWRITER_CONFIG } from './types.js';
+import { createLogger } from '../../../infrastructure/logging/index.js';
+
+const log = createLogger('QueryRewriter');
 
 const REWRITE_SYSTEM_PROMPT = `Tu es un expert en reformulation de requêtes pour un système de recherche sémantique dans une base de documents d'entreprise.
 
@@ -62,7 +65,7 @@ export class QueryRewriterService implements IQueryRewriterService {
         return this.fallbackResult(query);
       }
 
-      console.log(`✏️ Query rewrite: "${query}" → "${cleanedQuery}"`);
+      log.info({ original: query, rewritten: cleanedQuery }, 'Query rewritten');
 
       return {
         originalQuery: query,
@@ -70,7 +73,7 @@ export class QueryRewriterService implements IQueryRewriterService {
         wasRewritten: true,
       };
     } catch (error) {
-      console.error('❌ Query rewrite failed, using original:', error);
+      log.warn({ err: error, query }, 'Query rewrite failed, using original');
       return this.fallbackResult(query);
     }
   }

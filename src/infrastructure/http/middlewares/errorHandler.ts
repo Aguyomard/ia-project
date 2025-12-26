@@ -15,11 +15,19 @@ export const errorHandler = (
   res: Response,
   _next: NextFunction
 ) => {
-  console.error(`❌ Erreur: ${err.message}`);
-
   let error = err;
   if (!(err instanceof AppError)) {
     error = new AppError('Erreur interne du serveur', 500);
+  }
+
+  const log = req.log;
+  if (log) {
+    log.error({
+      err,
+      statusCode: error.statusCode,
+      url: req.url,
+      method: req.method,
+    }, 'Request error');
   }
 
   res.status(error.statusCode).json({

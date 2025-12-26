@@ -28,7 +28,7 @@ export async function addDocument(req: Request, res: Response): Promise<void> {
     const result = await addDocumentUseCase.execute(validation.data);
     res.status(201).json(result);
   } catch (error) {
-    console.error('Error adding document:', error);
+    req.log?.error({ err: error }, 'Error adding document');
     res.status(500).json({ error: 'Failed to add document' });
   }
 }
@@ -44,7 +44,7 @@ export async function listDocuments(
     const result = await listDocumentsUseCase.execute(validation.data);
     res.json(result);
   } catch (error) {
-    console.error('Error listing documents:', error);
+    req.log?.error({ err: error }, 'Error listing documents');
     res.status(500).json({ error: 'Failed to list documents' });
   }
 }
@@ -67,7 +67,7 @@ export async function getDocument(req: Request, res: Response): Promise<void> {
       res.status(404).json({ error: 'Document not found' });
       return;
     }
-    console.error('Error getting document:', error);
+    req.log?.error({ err: error }, 'Error getting document');
     res.status(500).json({ error: 'Failed to get document' });
   }
 }
@@ -80,7 +80,9 @@ export async function deleteDocument(
     const validation = validateParams(DocumentIdParamSchema, req.params, res);
     if (!validation.success) return;
 
-    const result = await deleteDocumentUseCase.execute({ id: validation.data.id });
+    const result = await deleteDocumentUseCase.execute({
+      id: validation.data.id,
+    });
 
     if (!result.success) {
       res.status(404).json({ error: 'Document not found' });
@@ -89,7 +91,7 @@ export async function deleteDocument(
 
     res.json({ success: true });
   } catch (error) {
-    console.error('Error deleting document:', error);
+    req.log?.error({ err: error }, 'Error deleting document');
     res.status(500).json({ error: 'Failed to delete document' });
   }
 }
@@ -105,7 +107,7 @@ export async function searchDocuments(
     const result = await searchDocumentsUseCase.execute(validation.data);
     res.json({ results: result.results });
   } catch (error) {
-    console.error('Error searching documents:', error);
+    req.log?.error({ err: error }, 'Error searching documents');
     res.status(500).json({ error: 'Failed to search documents' });
   }
 }
@@ -115,10 +117,16 @@ export async function addDocumentWithChunking(
   res: Response
 ): Promise<void> {
   try {
-    const validation = validateBody(AddDocumentWithChunkingSchema, req.body, res);
+    const validation = validateBody(
+      AddDocumentWithChunkingSchema,
+      req.body,
+      res
+    );
     if (!validation.success) return;
 
-    const result = await addDocumentWithChunkingUseCase.execute(validation.data);
+    const result = await addDocumentWithChunkingUseCase.execute(
+      validation.data
+    );
 
     res.status(201).json({
       message: `Document split into ${result.totalChunks} chunks`,
@@ -144,7 +152,7 @@ export async function addDocumentWithChunking(
       })),
     });
   } catch (error) {
-    console.error('Error adding document with chunking:', error);
+    req.log?.error({ err: error }, 'Error adding document with chunking');
     res.status(500).json({ error: 'Failed to add document with chunking' });
   }
 }

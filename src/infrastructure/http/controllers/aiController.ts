@@ -10,7 +10,7 @@ export async function testAI(req: Request, res: Response): Promise<void> {
       data: result.data,
     });
   } catch (error) {
-    console.error('Erreur Mistral:', error);
+    req.log?.error({ err: error }, 'Mistral AI test failed');
     res.status(500).json({
       result: 500,
       error: 'Erreur avec Mistral AI',

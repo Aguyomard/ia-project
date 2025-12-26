@@ -11,6 +11,9 @@ import {
   type ChunkingService,
 } from '../../services/chunking/index.js';
 import type { Chunk } from '../../../domain/document/index.js';
+import { createLogger } from '../../../infrastructure/logging/index.js';
+
+const log = createLogger('AddDocumentWithChunking');
 
 export type { AddDocumentWithChunkingInput, AddDocumentWithChunkingOutput };
 
@@ -38,10 +41,12 @@ export class AddDocumentWithChunkingUseCase
       overlap,
     });
 
-    console.log(
-      `📄 Chunking: ${chunkingResult.originalLength} chars → ${chunkingResult.totalChunks} chunks ` +
-        `(size: ${chunkSize || 500}, overlap: ${overlap || 100})`
-    );
+    log.info({
+      originalLength: chunkingResult.originalLength,
+      totalChunks: chunkingResult.totalChunks,
+      chunkSize: chunkSize || 500,
+      overlap: overlap || 100,
+    }, 'Document chunked');
 
     const repository = getDocumentRepository();
     const mistral = getMistralClient();
@@ -51,7 +56,7 @@ export class AddDocumentWithChunkingUseCase
       content,
       title: content.substring(0, 100),
     });
-    console.log(`📝 Document created with ID: ${document.id}`);
+    log.info({ documentId: document.id }, 'Document created');
 
     // 3. Générer les embeddings pour tous les chunks en batch
     const chunkContents = chunkingResult.chunks.map((c) => c.content);
@@ -80,9 +85,10 @@ export class AddDocumentWithChunkingUseCase
       endOffset: c.endOffset,
     }));
 
-    console.log(
-      `✅ ${chunks.length} chunks saved to database (document_id: ${document.id})`
-    );
+    log.info({
+      chunkCount: chunks.length,
+      documentId: document.id,
+    }, 'Chunks saved to database');
 
     return {
       document,

@@ -17,8 +17,9 @@
 9. [Query Rewriting - Reformulation de requêtes](#9-query-rewriting---reformulation-de-requêtes)
 10. [Hybrid Search - Recherche hybride](#10-hybrid-search---recherche-hybride)
 11. [Architecture Clean Architecture](#11-architecture-clean-architecture)
-12. [Frontend Vue.js](#12-frontend-vuejs)
-13. [Concepts clés à retenir](#13-concepts-clés-à-retenir)
+12. [Logs structurés avec Pino](#12-logs-structurés-avec-pino)
+13. [Frontend Vue.js](#13-frontend-vuejs)
+14. [Concepts clés à retenir](#14-concepts-clés-à-retenir)
 
 ---
 
@@ -2191,7 +2192,8 @@ src/
 │   │   │   ├── conversationRoutes.ts
 │   │   │   └── documentRoutes.ts
 │   │   └── middlewares/
-│   │       └── errorHandler.ts
+│   │       ├── errorHandler.ts
+│   │       └── requestLogger.ts       # Middleware requestId + logging
 │   ├── persistence/
 │   │   ├── ConversationRepository.ts  # Implémente IConversationRepository
 │   │   └── DocumentRepository.ts      # Implémente IDocumentRepository
@@ -2206,6 +2208,10 @@ src/
 │   │       └── errors.ts
 │   ├── common/
 │   │   └── retry.ts                   # Exponential backoff
+│   ├── logging/
+│   │   ├── logger.ts                  # Logger Pino centralisé
+│   │   ├── ConsoleRAGLogger.ts        # Logger spécialisé RAG
+│   │   └── index.ts
 │   └── config/
 │       └── prisma.ts
 │
@@ -2330,9 +2336,242 @@ POST /api/chat/stream
 
 ---
 
-## 12. Frontend Vue.js
+## 12. Logs structurés avec Pino
 
-### 12.1 Composants
+### 12.1 Le problème des console.log
+
+Les `console.log` basiques posent plusieurs problèmes en production :
+
+| Problème                     | Impact                                           |
+| ---------------------------- | ------------------------------------------------ |
+| **Texte brut**               | Difficile à parser par les outils de monitoring  |
+| **Pas de niveaux cohérents** | Mélange info/warn/error sans structure           |
+| **Pas de contexte**          | Impossible de tracer une requête de bout en bout |
+| **Pas de rotation**          | Les fichiers de logs grossissent indéfiniment    |
+
+### 12.2 La solution : Pino
+
+**Pino** est une librairie de logging ultra-rapide pour Node.js qui produit des logs JSON structurés.
+
+```bash
+# Installation
+pnpm add pino pino-pretty
+```
+
+### 12.3 Configuration du logger
+
+```typescript
+// src/infrastructure/logging/logger.ts
+
+import pino from 'pino';
+
+const isDevelopment = process.env.NODE_ENV === 'development';
+const isTest = process.env.NODE_ENV === 'test';
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL || (isTest ? 'error' : 'info'),
+  transport: isDevelopment
+    ? {
+        target: 'pino-pretty', // Format lisible en dev
+        options: {
+          colorize: true,
+          translateTime: 'SYS:HH:MM:ss',
+          ignore: 'pid,hostname',
+        },
+      }
+    : undefined, // JSON brut en production
+  base: {
+    env: process.env.NODE_ENV || 'development',
+  },
+});
+
+// Factory pour créer des loggers par service
+export function createLogger(service: string) {
+  return logger.child({ service });
+}
+
+// Factory avec requestId pour tracer les requêtes
+export function createRequestLogger(requestId: string, service?: string) {
+  return logger.child({ requestId, ...(service && { service }) });
+}
+```
+
+### 12.4 Middleware de traçage des requêtes
+
+Le middleware `requestLogger` ajoute automatiquement un identifiant unique à chaque requête HTTP :
+
+```typescript
+// src/infrastructure/http/middlewares/requestLogger.ts
+
+import type { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'crypto';
+import { createRequestLogger, type Logger } from '../../logging/index.js';
+
+// Étendre le type Request pour inclure log et requestId
+declare global {
+  namespace Express {
+    interface Request {
+      requestId: string;
+      log: Logger;
+    }
+  }
+}
+
+export function requestLogger(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  // Générer ou récupérer le requestId
+  const requestId = (req.headers['x-request-id'] as string) || randomUUID();
+  const log = createRequestLogger(requestId);
+
+  req.requestId = requestId;
+  req.log = log;
+
+  res.setHeader('X-Request-ID', requestId);
+
+  const startTime = Date.now();
+
+  // Log de début de requête
+  log.info(
+    {
+      method: req.method,
+      url: req.url,
+      userAgent: req.headers['user-agent'],
+    },
+    'Incoming request'
+  );
+
+  // Log de fin de requête
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    log.info(
+      {
+        method: req.method,
+        url: req.url,
+        statusCode: res.statusCode,
+        durationMs: duration,
+      },
+      'Request completed'
+    );
+  });
+
+  next();
+}
+```
+
+### 12.5 Utilisation dans les services
+
+```typescript
+// src/infrastructure/external/mistral/MistralClient.ts
+
+import { createLogger } from '../../logging/index.js';
+
+const log = createLogger('MistralClient');
+
+export class MistralClient {
+  async complete(messages: ChatMessage[], options: ChatOptions) {
+    log.info({
+      model,
+      messageCount: messages.length,
+      tokens: estimateTokens(messages),
+      jsonMode: options.jsonMode,
+    }, 'API call started');
+
+    try {
+      const response = await this.client.chat.complete({ ... });
+      return response;
+    } catch (error) {
+      log.error({ err: error }, 'API call failed after retries');
+      throw error;
+    }
+  }
+}
+```
+
+### 12.6 Utilisation dans les controllers
+
+Dans les controllers, on utilise `req.log` qui contient déjà le `requestId` :
+
+```typescript
+// Avant (console.error)
+} catch (error) {
+  console.error('Error getting document:', error);
+  res.status(500).json({ error: 'Failed to get document' });
+}
+
+// Après (logger structuré)
+} catch (error) {
+  req.log?.error({ err: error }, 'Error getting document');
+  res.status(500).json({ error: 'Failed to get document' });
+}
+```
+
+### 12.7 Format des logs
+
+**En développement (pino-pretty)** :
+
+```
+14:30:45 INFO (MistralClient): API call started
+    model: "mistral-tiny"
+    messageCount: 5
+    tokens: 1200
+    jsonMode: false
+```
+
+**En production (JSON)** :
+
+```json
+{
+  "level": 30,
+  "time": 1766759023738,
+  "env": "production",
+  "requestId": "747d0adb-48de-4ab3-934b-1cbf36477f86",
+  "service": "MistralClient",
+  "model": "mistral-tiny",
+  "messageCount": 5,
+  "tokens": 1200,
+  "jsonMode": false,
+  "msg": "API call started"
+}
+```
+
+### 12.8 Niveaux de log Pino
+
+| Niveau  | Valeur | Usage                    |
+| ------- | ------ | ------------------------ |
+| `trace` | 10     | Debug très détaillé      |
+| `debug` | 20     | Informations de débogage |
+| `info`  | 30     | Événements normaux       |
+| `warn`  | 40     | Avertissements           |
+| `error` | 50     | Erreurs                  |
+| `fatal` | 60     | Erreurs critiques        |
+
+### 12.9 Avantages de Pino
+
+| Avantage                  | Description                                                     |
+| ------------------------- | --------------------------------------------------------------- |
+| **Ultra-rapide**          | ~5x plus rapide que Winston (écriture async, buffers optimisés) |
+| **JSON natif**            | Parfait pour ELK, Datadog, Grafana Loki                         |
+| **Child loggers**         | Héritage de contexte (service, requestId)                       |
+| **Sérialisation erreurs** | Stack trace automatiquement incluse                             |
+| **pino-pretty**           | Format lisible en dev sans sacrifier la perf                    |
+
+### 12.10 Comparaison avec les alternatives
+
+| Librairie       | Vitesse        | Format       | Flexibilité |
+| --------------- | -------------- | ------------ | ----------- |
+| **Pino** ✅     | 🚀 Très rapide | JSON natif   | Moyenne     |
+| **Winston**     | 🐢 Lent        | Configurable | Très haute  |
+| **Bunyan**      | 🏃 Rapide      | JSON         | Moyenne     |
+| **console.log** | 🚀 Rapide      | Texte        | Aucune      |
+
+---
+
+## 13. Frontend Vue.js
+
+### 13.1 Composants
 
 ```
 frontend/src/
@@ -2346,7 +2585,7 @@ frontend/src/
     └── index.ts              # Vue Router
 ```
 
-### 12.2 Gestion du streaming
+### 13.2 Gestion du streaming
 
 ```vue
 <script setup>
@@ -2375,9 +2614,9 @@ async function sendMessage(content) {
 
 ---
 
-## 13. Concepts clés à retenir
+## 14. Concepts clés à retenir
 
-### 13.1 Patterns
+### 14.1 Patterns
 
 | Pattern                  | Où                           | Pourquoi                               |
 | ------------------------ | ---------------------------- | -------------------------------------- |
@@ -2398,17 +2637,21 @@ async function sendMessage(content) {
 | **Fallback gracieux**    | RerankClient.isAvailable()   | Continuer si service indisponible      |
 | **Microservice**         | rerank-service (Python)      | Isoler le modèle ML du backend Node.js |
 | **Zod Validation**       | schemas/\*.schema.ts         | Validation typée et réutilisable       |
+| **Structured Logging**   | Pino + requestLogger         | Logs JSON parsables, traçabilité       |
+| **Child Logger**         | logger.child({ service })    | Héritage de contexte dans les logs     |
+| **Request Tracing**      | requestId middleware         | Corréler les logs d'une requête        |
 
-### 13.2 Bonnes pratiques
+### 14.2 Bonnes pratiques
 
 1. **Séparation des responsabilités** : Routes → Controllers → Services
 2. **Typage fort** : Interfaces TypeScript partout
 3. **Gestion des erreurs** : Classes d'erreurs custom
 4. **Configuration** : Variables d'environnement, pas de hardcode
-5. **Logging** : Console.log pour debug, avec préfixes `[ServiceName]`
+5. **Logging structuré** : Pino avec JSON, pas de `console.log` en production
 6. **Paramètres SQL** : Toujours utiliser `$1, $2` au lieu de concaténation
+7. **Traçabilité** : RequestId sur chaque requête HTTP
 
-### 13.3 Points de vigilance
+### 14.3 Points de vigilance
 
 | Problème                 | Solution                       |
 | ------------------------ | ------------------------------ |
@@ -2425,8 +2668,11 @@ async function sendMessage(content) {
 | Latence reranking        | Limiter les candidats (10 max) |
 | Codes/noms non trouvés   | Hybrid Search (vector+keyword) |
 | Validation manuelle      | Schémas Zod centralisés        |
+| Logs non parsables       | Pino avec format JSON          |
+| Pas de traçabilité       | Middleware requestId           |
+| Logs en prod illisibles  | pino-pretty en dev seulement   |
 
-### 13.4 Commandes utiles
+### 14.4 Commandes utiles
 
 ```bash
 # Générer le client Prisma
@@ -2487,9 +2733,23 @@ docker compose exec postgres psql -U postgres -d ia_chat -c \
 # Vérifier l'index GIN
 docker compose exec postgres psql -U postgres -d ia_chat -c \
   "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'chunks';"
+
+# === Logs et Monitoring ===
+
+# Voir les logs structurés en temps réel
+docker compose logs app -f
+
+# Filtrer les logs par niveau (avec jq si disponible)
+docker compose logs app | grep '"level":50'  # Erreurs seulement
+
+# Voir les 20 derniers logs
+docker compose logs app --tail=20
+
+# Activer pino-pretty en développement
+# Ajouter dans .env : NODE_ENV=development
 ```
 
-### 13.5 Système de migrations SQL
+### 14.5 Système de migrations SQL
 
 Prisma ne supporte pas le type `vector` de pgvector, donc on utilise un système de migrations SQL personnalisé :
 
@@ -2516,7 +2776,7 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS my_column TEXT;
 
 Puis exécuter : `docker compose exec app sh -c "cd /app/src && pnpm migrate"`
 
-### 13.6 Fixtures et Seeding
+### 14.6 Fixtures et Seeding
 
 Pour tester l'application avec des données réalistes :
 
@@ -2653,6 +2913,16 @@ export const documentFixtures: DocumentFixture[] = [
 - [ ] Je sais utiliser `.refine()` pour des validations cross-field
 - [ ] Je peux créer des helpers de validation réutilisables
 
+### Logs structurés (Pino)
+
+- [ ] Je comprends les avantages des logs JSON vs console.log
+- [ ] Je sais configurer Pino avec pino-pretty en dev et JSON en prod
+- [ ] Je comprends le concept de child logger et l'héritage de contexte
+- [ ] Je sais créer un middleware requestLogger pour tracer les requêtes
+- [ ] Je comprends comment utiliser `req.log` dans les controllers
+- [ ] Je sais que Pino est ~5x plus rapide que Winston
+- [ ] Je peux configurer les niveaux de log (info, warn, error, etc.)
+
 ---
 
-_Document mis à jour le 22/12/2024_
+_Document mis à jour le 26/12/2024_

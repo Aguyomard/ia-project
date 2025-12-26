@@ -11,6 +11,9 @@ import {
   RerankUnavailableError,
 } from './errors.js';
 import type { IRerankClient } from '../../../application/ports/out/IRerankClient.js';
+import { createLogger } from '../../logging/index.js';
+
+const log = createLogger('RerankClient');
 
 const DEFAULT_TIMEOUT = 30000;
 const DEFAULT_TOP_K = 3;
@@ -92,9 +95,11 @@ export class RerankClient implements IRerankClient {
 
       const data = (await response.json()) as RerankResponse;
 
-      console.log(
-        `🔄 Reranked ${documents.length} → ${data.results.length} docs (model: ${data.model})`
-      );
+      log.info({
+        inputDocs: documents.length,
+        outputDocs: data.results.length,
+        model: data.model,
+      }, 'Reranking completed');
 
       return data.results;
     } catch (error) {
