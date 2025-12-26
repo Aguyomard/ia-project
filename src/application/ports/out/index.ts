@@ -16,3 +16,8 @@ export type {
   QueryRewriteResult,
 } from './IQueryRewriterService.js';
 export type { ILogger, IRAGLogger } from './ILogger.js';
+export type {
+  IHybridSearchService,
+  HybridSearchOptions,
+  HybridSearchResult,
+} from './IHybridSearchService.js';

@@ -4,6 +4,7 @@ import type {
   SearchOptions,
 } from '../../../domain/document/index.js';
 import type { IDocumentService } from '../../ports/out/IDocumentService.js';
+import type { IHybridSearchService } from '../../ports/out/IHybridSearchService.js';
 import {
   DEFAULT_KEYWORD_WEIGHT,
   DEFAULT_RRF_K,
@@ -14,7 +15,7 @@ import {
 
 export type { HybridSearchResult, HybridSearchOptions };
 
-export class HybridSearchService {
+export class HybridSearchService implements IHybridSearchService {
   private readonly documentService: IDocumentService;
 
   constructor(documentService: IDocumentService) {

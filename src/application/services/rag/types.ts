@@ -2,13 +2,13 @@ import type { IRAGLogger } from '../../ports/out/ILogger.js';
 import type { IDocumentService } from '../../ports/out/IDocumentService.js';
 import type { IQueryRewriterService } from '../../ports/out/IQueryRewriterService.js';
 import type { IRerankClient } from '../../ports/out/IRerankClient.js';
-import type { HybridSearchService } from './HybridSearchService.js';
+import type { IHybridSearchService } from '../../ports/out/IHybridSearchService.js';
 
 export interface RAGServiceDependencies {
   documentService: IDocumentService;
   queryRewriterService: IQueryRewriterService;
   rerankClient: IRerankClient;
-  hybridSearchService: HybridSearchService;
+  hybridSearchService: IHybridSearchService;
   logger: IRAGLogger;
   config?: Partial<RAGConfig>;
 }

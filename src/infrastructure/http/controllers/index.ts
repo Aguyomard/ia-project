@@ -20,3 +20,5 @@ export {
   chatStream,
 } from './conversationController.js';
 
+// Health Controller
+export { healthCheck, healthCheckSimple } from './healthController.js';
